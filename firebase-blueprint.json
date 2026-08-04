@@ -1,0 +1,36 @@
+{
+  "entities": {
+    "Room": {
+      "title": "Room",
+      "description": "A photobooth session room",
+      "type": "object",
+      "properties": {
+        "createdAt": { "type": "timestamp" },
+        "status": { "type": "string", "enum": ["waiting", "both_connected", "ready", "countdown", "captured", "done"] },
+        "layout": { "type": "string" },
+        "countdownStartAt": { "type": "timestamp", "nullable": true },
+        "host": { "$ref": "#/entities/Participant" },
+        "guest": { "$ref": "#/entities/Participant", "nullable": true }
+      },
+      "required": ["status", "host", "createdAt"]
+    },
+    "Participant": {
+      "title": "Participant",
+      "description": "A user in the room",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "connected": { "type": "boolean" },
+        "ready": { "type": "boolean" },
+        "photoUrl": { "type": "string", "nullable": true },
+        "photoReady": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "rooms/{roomCode}": {
+      "schema": "#/entities/Room",
+      "description": "Photobooth rooms"
+    }
+  }
+}

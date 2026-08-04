@@ -1,0 +1,509 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { auth, db, loginWithGoogle, logout } from '@/lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { generateRoomCode } from '@/lib/utils';
+import Webcam from 'react-webcam';
+import { Loader2, LogOut, Camera, RefreshCcw, Check, UserPlus } from 'lucide-react';
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50">
+        <Loader2 className="animate-spin w-8 h-8 text-zinc-400" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-50 p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mb-6">
+            <Camera className="w-8 h-8 text-zinc-900" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Photobooth Duo</h1>
+          <p className="text-zinc-500 mb-8 text-sm">Ambil foto bersama secara real-time dari dua device berbeda.</p>
+          <button 
+            onClick={loginWithGoogle} 
+            className="w-full py-3 bg-zinc-900 text-white rounded-xl font-medium hover:bg-zinc-800 transition-colors"
+          >
+            Masuk dengan Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return <MainApp user={user} />;
+}
+
+function MainApp({ user }: { user: User }) {
+  const [roomCode, setRoomCode] = useState('');
+  const [role, setRole] = useState<'host' | 'guest' | null>(null);
+  const [joinInput, setJoinInput] = useState('');
+  const [error, setError] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const createRoom = async () => {
+    setCreating(true);
+    setError('');
+    let code = '';
+    let success = false;
+    
+    // Coba buat kode unik
+    for (let i = 0; i < 5; i++) {
+      code = generateRoomCode();
+      const ref = doc(db, 'rooms', code);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        await setDoc(ref, {
+          createdAt: serverTimestamp(),
+          status: 'waiting',
+          layout: 'split-vertical',
+          countdownStartAt: null,
+          host: {
+            uid: user.uid,
+            connected: true,
+            ready: false,
+            photoUrl: null,
+            photoReady: false
+          },
+          guest: {
+            uid: null,
+            connected: false,
+            ready: false,
+            photoUrl: null,
+            photoReady: false
+          }
+        });
+        success = true;
+        break;
+      }
+    }
+    
+    setCreating(false);
+    if (success) {
+      setRole('host');
+      setRoomCode(code);
+    } else {
+      setError('Gagal membuat room, coba lagi.');
+    }
+  };
+
+  const joinRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const code = joinInput.trim();
+    if (code.length < 4) return;
+    
+    const ref = doc(db, 'rooms', code);
+    const snap = await getDoc(ref);
+    
+    if (!snap.exists()) {
+      setError('Kode tidak ditemukan.');
+      return;
+    }
+    
+    const data = snap.data();
+    if (data.status !== 'waiting') {
+      setError('Room sudah penuh atau sedang berjalan.');
+      return;
+    }
+    
+    // Gabung sebagai guest
+    await updateDoc(ref, {
+      'guest.uid': user.uid,
+      'guest.connected': true,
+      status: 'both_connected'
+    });
+    
+    setRole('guest');
+    setRoomCode(code);
+  };
+
+  if (roomCode && role) {
+    return <PhotoboothRoom roomCode={roomCode} role={role} onLeave={() => { setRoomCode(''); setRole(null); }} />;
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-50 p-4">
+      <div className="absolute top-4 right-4">
+        <button onClick={logout} className="p-2 text-zinc-500 hover:bg-zinc-100 rounded-full transition-colors">
+          <LogOut className="w-5 h-5" />
+        </button>
+      </div>
+      
+      <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-100 max-w-sm w-full">
+        <h2 className="text-xl font-bold mb-6 text-center">Pilih Mode</h2>
+        
+        <button 
+          onClick={createRoom}
+          disabled={creating}
+          className="w-full py-4 mb-6 bg-zinc-900 text-white rounded-2xl font-medium hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
+          Buat Sesi Baru
+        </button>
+
+        <div className="relative flex items-center py-2 mb-6">
+          <div className="flex-grow border-t border-zinc-200"></div>
+          <span className="flex-shrink-0 mx-4 text-zinc-400 text-sm">atau</span>
+          <div className="flex-grow border-t border-zinc-200"></div>
+        </div>
+
+        <form onSubmit={joinRoom} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">Kode Room</label>
+            <input 
+              type="text" 
+              value={joinInput}
+              onChange={(e) => setJoinInput(e.target.value.toUpperCase())}
+              placeholder="Contoh: 1234"
+              className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 outline-none transition-all text-center text-xl tracking-widest uppercase"
+              maxLength={6}
+            />
+          </div>
+          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          <button 
+            type="submit"
+            disabled={joinInput.length < 4}
+            className="w-full py-4 bg-zinc-100 text-zinc-900 rounded-2xl font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"
+          >
+            Gabung Sesi
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: 'host'|'guest', onLeave: () => void }) {
+  const [room, setRoom] = useState<any>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const webcamRef = useRef<Webcam>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  const otherRole = role === 'host' ? 'guest' : 'host';
+
+  // 1. Sinkronisasi Koneksi (Cleanup on disconnect)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const ref = doc(db, 'rooms', roomCode);
+      updateDoc(ref, {
+        [`${role}.connected`]: false,
+        [`${role}.ready`]: false,
+      });
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      handleBeforeUnload();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [roomCode, role]);
+
+  // 2. Real-time Listener (The Single Source of Truth)
+  useEffect(() => {
+    const ref = doc(db, 'rooms', roomCode);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setRoom(data);
+        
+        // Host trigger countdown jika kedua ready
+        if (role === 'host' && (data.status === 'both_connected' || data.status === 'ready')) {
+          if (data.host.ready && data.guest.ready && data.status !== 'countdown') {
+            updateDoc(ref, {
+              status: 'countdown',
+              countdownStartAt: Date.now() + 4000 // 4 detik dari sekarang untuk buffer jaringan
+            });
+          }
+        }
+      } else {
+        alert("Sesi telah berakhir.");
+        onLeave();
+      }
+    });
+    return unsub;
+  }, [roomCode, role, onLeave]);
+
+  // 3. Countdown Tersinkronisasi
+  useEffect(() => {
+    if (room?.status === 'countdown' && room.countdownStartAt) {
+      const interval = setInterval(() => {
+        const remaining = room.countdownStartAt - Date.now();
+        if (remaining <= 0) {
+          clearInterval(interval);
+          setCountdown(0);
+          capturePhoto();
+        } else {
+          setCountdown(Math.ceil(remaining / 1000));
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    } else {
+      setCountdown(null);
+    }
+  }, [room?.status, room?.countdownStartAt]);
+  
+  // 4. Compositing saat kedua foto siap
+  useEffect(() => {
+    if (room?.status === 'countdown' || room?.status === 'captured') {
+        if (room.host.photoReady && room.guest.photoReady && room.status !== 'captured') {
+            compositePhotos();
+            if (role === 'host') {
+                updateDoc(doc(db, 'rooms', roomCode), { status: 'captured' });
+            }
+        }
+        
+        if (room.status === 'captured') {
+            compositePhotos();
+        }
+    }
+  }, [room?.host?.photoReady, room?.guest?.photoReady, room?.status, role]);
+
+  const toggleReady = () => {
+    if (!room) return;
+    const currentReady = room[role].ready;
+    updateDoc(doc(db, 'rooms', roomCode), {
+      [`${role}.ready`]: !currentReady,
+      status: 'ready'
+    });
+  };
+
+  const capturePhoto = useCallback(() => {
+    if (webcamRef.current) {
+      // Ambil screenshot dengan rasio portrait 3:4
+      const imageSrc = webcamRef.current.getScreenshot({ width: 480, height: 640 });
+      if (imageSrc) {
+        updateDoc(doc(db, 'rooms', roomCode), {
+          [`${role}.photoUrl`]: imageSrc,
+          [`${role}.photoReady`]: true
+        });
+      }
+    }
+  }, [roomCode, role]);
+
+  const compositePhotos = useCallback(() => {
+    if (!canvasRef.current || !room?.host?.photoUrl || !room?.guest?.photoUrl) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const hostImg = new Image();
+    const guestImg = new Image();
+    
+    canvas.width = 640; 
+    canvas.height = 976; 
+    
+    hostImg.onload = () => {
+      guestImg.onload = () => {
+         ctx.fillStyle = '#fff';
+         ctx.fillRect(0, 0, canvas.width, canvas.height);
+         
+         const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
+             const imgRatio = img.width / img.height;
+             const targetRatio = w / h;
+             let sx, sy, sw, sh;
+             if (imgRatio > targetRatio) {
+                 sh = img.height;
+                 sw = sh * targetRatio;
+                 sx = (img.width - sw) / 2;
+                 sy = 0;
+             } else {
+                 sw = img.width;
+                 sh = sw / targetRatio;
+                 sx = 0;
+                 sy = (img.height - sh) / 2;
+             }
+             ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+         };
+
+         // Kiri: Host, Kanan: Guest
+         drawCover(hostImg, 0, 0, 320, 976);
+         drawCover(guestImg, 320, 0, 320, 976);
+         
+         ctx.strokeStyle = '#fff';
+         ctx.lineWidth = 6;
+         ctx.beginPath();
+         ctx.moveTo(320, 0);
+         ctx.lineTo(320, 976);
+         ctx.stroke();
+      };
+      guestImg.src = room.guest.photoUrl;
+    };
+    hostImg.src = room.host.photoUrl;
+  }, [room]);
+  
+  const resetSession = () => {
+    // Host yang berhak reset state
+    if (role === 'host') {
+        updateDoc(doc(db, 'rooms', roomCode), {
+            status: 'both_connected',
+            'host.ready': false,
+            'guest.ready': false,
+            'host.photoReady': false,
+            'guest.photoReady': false,
+            'host.photoUrl': null,
+            'guest.photoUrl': null,
+            countdownStartAt: null
+        });
+    }
+  };
+
+  if (!room) {
+    return <div className="flex min-h-screen items-center justify-center bg-zinc-900"><Loader2 className="animate-spin w-8 h-8 text-white" /></div>;
+  }
+
+  const isCaptured = room.status === 'captured';
+  const myData = room[role];
+  const otherData = room[otherRole];
+  
+  let statusText = 'Menunggu peserta lain...';
+  if (room.status === 'both_connected' || room.status === 'ready') {
+    if (!otherData.connected) {
+      statusText = 'Peserta lain terputus.';
+    } else if (myData.ready && !otherData.ready) {
+      statusText = 'Menunggu peserta lain ready...';
+    } else if (!myData.ready && otherData.ready) {
+      statusText = 'Peserta lain sudah ready!';
+    } else {
+      statusText = 'Kedua peserta terhubung';
+    }
+  }
+
+  return (
+    <div className="flex flex-col min-h-[100dvh] bg-zinc-900 text-white">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 bg-zinc-950">
+        <div className="flex items-center gap-3">
+          <div className="bg-zinc-800 px-3 py-1.5 rounded-lg text-sm font-mono tracking-widest border border-zinc-700">
+            {roomCode}
+          </div>
+          <span className="text-xs text-zinc-400 capitalize">{role}</span>
+        </div>
+        <button onClick={onLeave} className="text-zinc-400 hover:text-white p-2">
+          <LogOut className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-grow flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        
+        {/* State: Captured */}
+        {isCaptured ? (
+          <div className="w-full max-w-sm flex flex-col items-center animate-in fade-in zoom-in duration-500">
+            <div className="w-full aspect-[1/1.52] bg-white rounded-lg p-2 shadow-2xl relative mb-8">
+              <canvas ref={canvasRef} className="w-full h-full object-contain" />
+            </div>
+            
+            {role === 'host' && (
+              <button 
+                onClick={resetSession}
+                className="flex items-center gap-2 px-8 py-4 bg-white text-black rounded-full font-bold shadow-xl active:scale-95 transition-transform"
+              >
+                <RefreshCcw className="w-5 h-5" />
+                Retake Foto
+              </button>
+            )}
+            {role === 'guest' && (
+              <p className="text-zinc-400 text-sm">Menunggu host untuk retake...</p>
+            )}
+          </div>
+        ) : (
+          /* State: Camera / Waiting */
+          <div className="w-full max-w-sm flex flex-col relative">
+            <div className="relative rounded-3xl overflow-hidden bg-black aspect-[3/4] border border-zinc-800 shadow-2xl">
+              {cameraError ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-zinc-900">
+                  <Camera className="w-12 h-12 text-red-500 mb-4" />
+                  <p className="text-white font-medium mb-2">Akses Kamera Ditolak</p>
+                  <p className="text-zinc-400 text-sm">{cameraError}</p>
+                </div>
+              ) : (
+                <Webcam
+                  ref={webcamRef}
+                  audio={false}
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={{ facingMode: "user", aspectRatio: 3/4 }}
+                  onUserMediaError={(err) => setCameraError(typeof err === 'string' ? err : err.message || 'Gagal mengakses kamera.')}
+                  className={`w-full h-full object-cover ${role === 'guest' ? '-scale-x-100' : '-scale-x-100'}`} 
+                  // Note: -scale-x-100 creates a mirror effect
+                />
+              )}
+              
+              {/* Overlay Countdown */}
+              {countdown !== null && countdown > 0 && !cameraError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-10 animate-in fade-in">
+                  <span className="text-8xl font-bold text-white drop-shadow-2xl animate-pulse">{countdown}</span>
+                </div>
+              )}
+              
+              {/* Flash effect when countdown reaches 0 */}
+              {countdown === 0 && (
+                <div className="absolute inset-0 bg-white z-20 animate-out fade-out duration-1000"></div>
+              )}
+              
+              {/* Other user status overlay */}
+              {(!otherData.connected || otherData.ready) && countdown === null && (
+                <div className="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
+                   {!otherData.connected && (
+                     <div className="bg-red-500/90 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md flex items-center gap-1.5 shadow-lg">
+                       <Loader2 className="w-3 h-3 animate-spin" /> Menunggu...
+                     </div>
+                   )}
+                   {otherData.connected && otherData.ready && (
+                     <div className="bg-green-500/90 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md flex items-center gap-1.5 shadow-lg ml-auto">
+                       <Check className="w-3 h-3" /> Partner Ready
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+
+            {/* Controls */}
+            {countdown === null && (
+              <div className="mt-8 flex flex-col items-center gap-4">
+                <p className="text-zinc-400 text-sm h-5">{statusText}</p>
+                
+                <button
+                  onClick={toggleReady}
+                  disabled={!otherData.connected}
+                  className={`w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2
+                    ${!otherData.connected 
+                      ? 'bg-zinc-800 text-zinc-600' 
+                      : myData.ready 
+                        ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]' 
+                        : 'bg-white text-black hover:bg-zinc-200'
+                    }`}
+                >
+                  {myData.ready ? (
+                    <>
+                      <Check className="w-5 h-5" /> Siap!
+                    </>
+                  ) : (
+                    "Saya Siap"
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

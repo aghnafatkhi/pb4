@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { generateRoomCode } from '@/lib/utils';
 import Webcam from 'react-webcam';
-import { Loader2, Camera, RefreshCcw, Check, UserPlus } from 'lucide-react';
+import { Loader2, Camera, RefreshCcw, Check, UserPlus, Download } from 'lucide-react';
 
 function getLocalUid() {
   if (typeof window === 'undefined') return 'temp-uid';
@@ -28,7 +28,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50">
+      <div className="flex min-h-screen items-center justify-center bg-[#FFEED6]">
         <Loader2 className="animate-spin w-8 h-8 text-zinc-400" />
       </div>
     );
@@ -45,6 +45,8 @@ function MainApp({ user }: { user: {uid: string} }) {
   const [joinInput, setJoinInput] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [selectedLayout, setSelectedLayout] = useState('split-vertical');
 
   const createRoom = async () => {
     setCreating(true);
@@ -61,7 +63,8 @@ function MainApp({ user }: { user: {uid: string} }) {
         await setDoc(ref, {
           createdAt: serverTimestamp(),
           status: 'waiting',
-          layout: 'split-vertical',
+          layout: selectedLayout,
+          overlayBackground: '#ffffff',
           countdownStartAt: null,
           host: {
             uid: user.uid,
@@ -127,17 +130,66 @@ function MainApp({ user }: { user: {uid: string} }) {
     return <PhotoboothRoom roomCode={roomCode} role={role} onLeave={() => { setRoomCode(''); setRole(null); }} />;
   }
 
+  if (isConfiguring) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#FFEED6] p-4">
+        <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-100 max-w-sm w-full">
+          <h2 className="text-xl font-bold mb-6 text-center">Pilih Layout Frame</h2>
+          
+          <div className="flex flex-col gap-3 mb-8">
+            <button 
+              onClick={() => setSelectedLayout('split-vertical')}
+              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === 'split-vertical' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+            >
+              <div className="font-semibold mb-1">Split Vertical</div>
+              <div className="text-xs text-zinc-500">2 Foto berdampingan (kiri-kanan)</div>
+            </button>
+            <button 
+              onClick={() => setSelectedLayout('split-horizontal')}
+              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === 'split-horizontal' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+            >
+              <div className="font-semibold mb-1">Split Horizontal</div>
+              <div className="text-xs text-zinc-500">2 Foto bersusun (atas-bawah)</div>
+            </button>
+            <button 
+              onClick={() => setSelectedLayout('grid')}
+              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === 'grid' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+            >
+              <div className="font-semibold mb-1">Grid 4-Kotak</div>
+              <div className="text-xs text-zinc-500">4 Foto dalam susunan grid</div>
+            </button>
+          </div>
+
+          <div className="flex gap-3">
+            <button 
+              onClick={() => setIsConfiguring(false)}
+              className="flex-1 py-4 bg-zinc-100 text-zinc-900 rounded-2xl font-medium hover:bg-zinc-200 transition-colors"
+            >
+              Batal
+            </button>
+            <button 
+              onClick={createRoom}
+              disabled={creating}
+              className="flex-1 py-4 bg-zinc-900 text-white rounded-2xl font-medium hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : "Buat Room"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-50 p-4">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-[#FFEED6] p-4">
       <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-100 max-w-sm w-full">
-        <h2 className="text-xl font-bold mb-6 text-center">Pilih Mode</h2>
+        <h1 className="text-2xl font-bold mb-8 text-center text-zinc-900 leading-tight">Untuk Ghina <br/><span className="text-zinc-500 font-medium text-lg">Dari Aghna</span></h1>
         
         <button 
-          onClick={createRoom}
-          disabled={creating}
-          className="w-full py-4 mb-6 bg-zinc-900 text-white rounded-2xl font-medium hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          onClick={() => setIsConfiguring(true)}
+          className="w-full py-4 mb-6 bg-zinc-900 text-white rounded-2xl font-medium hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2"
         >
-          {creating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
+          <Camera className="w-5 h-5" />
           Buat Sesi Baru
         </button>
 
@@ -223,6 +275,25 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     return unsub;
   }, [roomCode, role, onLeave]);
 
+  // Session Expiry Check
+  useEffect(() => {
+    if (!room?.createdAt || typeof room.createdAt.toDate !== 'function') return;
+    
+    const createdAtTime = room.createdAt.toDate().getTime();
+    const expiryTime = createdAtTime + 15 * 60 * 1000; // 15 minutes
+    
+    const checkExpiry = () => {
+      if (Date.now() >= expiryTime) {
+        alert("Session Expired: Room is older than 15 minutes.");
+        onLeave();
+      }
+    };
+    
+    checkExpiry();
+    const interval = setInterval(checkExpiry, 10000);
+    return () => clearInterval(interval);
+  }, [room?.createdAt, onLeave]);
+
   // 3. Countdown Tersinkronisasi
   useEffect(() => {
     if (room?.status === 'countdown' && room.countdownStartAt) {
@@ -267,6 +338,32 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     });
   };
 
+  const changeLayout = (newLayout: string) => {
+    if (role === 'host') {
+      updateDoc(doc(db, 'rooms', roomCode), { layout: newLayout });
+    }
+  };
+
+  const filterOptions = [
+    { id: 'normal', name: 'Normal', style: 'none' },
+    { id: 'bw', name: 'B&W', style: 'grayscale(100%)' },
+    { id: 'sepia', name: 'Sepia', style: 'sepia(100%)' },
+    { id: 'warm', name: 'Warm', style: 'sepia(30%) saturate(140%) hue-rotate(-10deg)' },
+  ];
+
+  const getFilterCSS = (fid: string) => filterOptions.find(f => f.id === fid)?.style || 'none';
+
+  const changeFilter = (newFilter: string) => {
+    if (!room) return;
+    updateDoc(doc(db, 'rooms', roomCode), { [`${role}.filter`]: newFilter });
+  };
+
+  const changeOverlayBackground = (color: string) => {
+    if (role === 'host') {
+      updateDoc(doc(db, 'rooms', roomCode), { overlayBackground: color });
+    }
+  };
+
   const capturePhoto = useCallback(() => {
     if (webcamRef.current) {
       // Ambil screenshot dengan rasio portrait 3:4
@@ -294,7 +391,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     
     hostImg.onload = () => {
       guestImg.onload = () => {
-         ctx.fillStyle = '#fff';
+         const bg = room.overlayBackground || '#ffffff';
+         ctx.fillStyle = bg;
          ctx.fillRect(0, 0, canvas.width, canvas.height);
          
          const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
@@ -315,16 +413,56 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
              ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
          };
 
-         // Kiri: Host, Kanan: Guest
-         drawCover(hostImg, 0, 0, 320, 976);
-         drawCover(guestImg, 320, 0, 320, 976);
+         const layout = room.layout || 'split-vertical';
+         const hostFilter = room.host.filter || 'normal';
+         const guestFilter = room.guest.filter || 'normal';
          
-         ctx.strokeStyle = '#fff';
-         ctx.lineWidth = 6;
-         ctx.beginPath();
-         ctx.moveTo(320, 0);
-         ctx.lineTo(320, 976);
-         ctx.stroke();
+         if (layout === 'split-horizontal') {
+             ctx.filter = getFilterCSS(hostFilter);
+             drawCover(hostImg, 0, 0, 640, 488);
+             ctx.filter = getFilterCSS(guestFilter);
+             drawCover(guestImg, 0, 488, 640, 488);
+             
+             ctx.filter = 'none';
+             ctx.strokeStyle = bg;
+             ctx.lineWidth = 6;
+             ctx.beginPath();
+             ctx.moveTo(0, 488);
+             ctx.lineTo(640, 488);
+             ctx.stroke();
+         } else if (layout === 'grid') {
+             ctx.filter = getFilterCSS(hostFilter);
+             drawCover(hostImg, 0, 0, 320, 488);
+             drawCover(hostImg, 320, 488, 320, 488);
+             
+             ctx.filter = getFilterCSS(guestFilter);
+             drawCover(guestImg, 320, 0, 320, 488);
+             drawCover(guestImg, 0, 488, 320, 488);
+
+             ctx.filter = 'none';
+             ctx.strokeStyle = bg;
+             ctx.lineWidth = 6;
+             ctx.beginPath();
+             ctx.moveTo(320, 0);
+             ctx.lineTo(320, 976);
+             ctx.moveTo(0, 488);
+             ctx.lineTo(640, 488);
+             ctx.stroke();
+         } else {
+             // split-vertical
+             ctx.filter = getFilterCSS(hostFilter);
+             drawCover(hostImg, 0, 0, 320, 976);
+             ctx.filter = getFilterCSS(guestFilter);
+             drawCover(guestImg, 320, 0, 320, 976);
+             
+             ctx.filter = 'none';
+             ctx.strokeStyle = bg;
+             ctx.lineWidth = 6;
+             ctx.beginPath();
+             ctx.moveTo(320, 0);
+             ctx.lineTo(320, 976);
+             ctx.stroke();
+         }
       };
       guestImg.src = room.guest.photoUrl;
     };
@@ -347,8 +485,17 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     }
   };
 
+  const downloadPhoto = () => {
+    if (!canvasRef.current) return;
+    const dataUrl = canvasRef.current.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = `photobooth-${roomCode}-${Date.now()}.png`;
+    link.href = dataUrl;
+    link.click();
+  };
+
   if (!room) {
-    return <div className="flex min-h-screen items-center justify-center bg-zinc-900"><Loader2 className="animate-spin w-8 h-8 text-white" /></div>;
+    return <div className="flex min-h-screen items-center justify-center bg-[#FFEED6]"><Loader2 className="animate-spin w-8 h-8 text-zinc-900" /></div>;
   }
 
   const isCaptured = room.status === 'captured';
@@ -369,16 +516,16 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
   }
 
   return (
-    <div className="flex flex-col min-h-[100dvh] bg-zinc-900 text-white">
+    <div className="flex flex-col min-h-[100dvh] bg-[#FFEED6] text-zinc-900">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 bg-zinc-950">
+      <div className="flex items-center justify-between p-4 bg-white/40 backdrop-blur-md border-b border-white/20">
         <div className="flex items-center gap-3">
-          <div className="bg-zinc-800 px-3 py-1.5 rounded-lg text-sm font-mono tracking-widest border border-zinc-700">
+          <div className="bg-white/60 px-3 py-1.5 rounded-lg text-sm font-mono tracking-widest border border-white/50 shadow-sm">
             {roomCode}
           </div>
-          <span className="text-xs text-zinc-400 capitalize">{role}</span>
+          <span className="text-xs text-zinc-500 capitalize font-medium">{role}</span>
         </div>
-        <button onClick={onLeave} className="text-zinc-400 hover:text-white px-3 py-1 text-sm font-medium">
+        <button onClick={onLeave} className="text-zinc-600 hover:text-zinc-900 px-3 py-1 text-sm font-medium transition-colors">
           Keluar
         </button>
       </div>
@@ -393,28 +540,71 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
               <canvas ref={canvasRef} className="w-full h-full object-contain" />
             </div>
             
+            <div className="w-full flex justify-between bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm gap-1 mb-4">
+              {filterOptions.map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => changeFilter(f.id)}
+                  className={`flex-1 py-2 text-xs font-medium rounded-xl transition-colors ${
+                    (myData.filter || 'normal') === f.id 
+                      ? 'bg-[#FFEED6] text-zinc-900 border border-zinc-200 shadow-sm' 
+                      : 'text-zinc-500 hover:text-zinc-700'
+                  }`}
+                >
+                  {f.name}
+                </button>
+              ))}
+            </div>
+
             {role === 'host' && (
+              <div className="w-full flex justify-between bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm gap-2 mb-8">
+                {[{id: 'white', hex: '#ffffff'}, {id: 'black', hex: '#000000'}, {id: 'cream', hex: '#FFEED6'}, {id: 'pink', hex: '#FCA5A5'}, {id: 'blue', hex: '#93C5FD'}].map(bg => (
+                  <button
+                    key={bg.id}
+                    onClick={() => changeOverlayBackground(bg.hex)}
+                    className={`w-10 h-10 rounded-full border-2 transition-transform hover:scale-110 ${
+                      (room.overlayBackground || '#ffffff') === bg.hex 
+                        ? 'border-zinc-900 scale-110 shadow-md' 
+                        : 'border-zinc-200'
+                    }`}
+                    style={{ backgroundColor: bg.hex }}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 w-full">
               <button 
-                onClick={resetSession}
-                className="flex items-center gap-2 px-8 py-4 bg-white text-black rounded-full font-bold shadow-xl active:scale-95 transition-transform"
+                onClick={downloadPhoto}
+                className="flex items-center justify-center gap-2 w-full py-4 bg-zinc-100 text-black rounded-full font-bold shadow-xl active:scale-95 transition-transform"
               >
-                <RefreshCcw className="w-5 h-5" />
-                Retake Foto
+                <Download className="w-5 h-5" />
+                Download Foto
               </button>
-            )}
-            {role === 'guest' && (
-              <p className="text-zinc-400 text-sm">Menunggu host untuk retake...</p>
-            )}
+
+              {role === 'host' && (
+                <button 
+                  onClick={resetSession}
+                  className="flex items-center justify-center gap-2 w-full py-4 bg-zinc-800 text-white rounded-full font-bold shadow-xl active:scale-95 transition-transform"
+                >
+                  <RefreshCcw className="w-5 h-5" />
+                  Retake Foto
+                </button>
+              )}
+              {role === 'guest' && (
+                <p className="text-zinc-500 text-sm text-center font-medium">Menunggu host untuk retake...</p>
+              )}
+            </div>
           </div>
         ) : (
           /* State: Camera / Waiting */
           <div className="w-full max-w-sm flex flex-col relative">
             <div className="relative rounded-3xl overflow-hidden bg-black aspect-[3/4] border border-zinc-800 shadow-2xl">
               {cameraError ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-zinc-900">
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-zinc-100">
                   <Camera className="w-12 h-12 text-red-500 mb-4" />
-                  <p className="text-white font-medium mb-2">Akses Kamera Ditolak</p>
-                  <p className="text-zinc-400 text-sm">{cameraError}</p>
+                  <p className="text-zinc-900 font-medium mb-2">Akses Kamera Ditolak</p>
+                  <p className="text-zinc-500 text-sm">{cameraError}</p>
                 </div>
               ) : (
                 <Webcam
@@ -424,6 +614,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                   videoConstraints={{ facingMode: "user", aspectRatio: 3/4 }}
                   onUserMediaError={(err) => setCameraError(typeof err === 'string' ? err : err.message || 'Gagal mengakses kamera.')}
                   className={`w-full h-full object-cover ${role === 'guest' ? '-scale-x-100' : '-scale-x-100'}`} 
+                  style={{ filter: getFilterCSS(myData.filter || 'normal') }}
                   // Note: -scale-x-100 creates a mirror effect
                 />
               )}
@@ -459,18 +650,19 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
 
             {/* Controls */}
             {countdown === null && (
-              <div className="mt-8 flex flex-col items-center gap-4">
-                <p className="text-zinc-400 text-sm h-5">{statusText}</p>
+              <div className="mt-6 flex flex-col items-center gap-4">
+                
+                <p className="text-zinc-500 text-sm h-5 font-medium">{statusText}</p>
                 
                 <button
                   onClick={toggleReady}
                   disabled={!otherData.connected}
                   className={`w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2
                     ${!otherData.connected 
-                      ? 'bg-zinc-800 text-zinc-600' 
+                      ? 'bg-zinc-200 text-zinc-400' 
                       : myData.ready 
                         ? 'bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]' 
-                        : 'bg-white text-black hover:bg-zinc-200'
+                        : 'bg-zinc-900 text-white hover:bg-zinc-800'
                     }`}
                 >
                   {myData.ready ? (

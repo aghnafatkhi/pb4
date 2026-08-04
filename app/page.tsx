@@ -1,23 +1,29 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { auth, db, loginWithGoogle, logout } from '@/lib/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { generateRoomCode } from '@/lib/utils';
 import Webcam from 'react-webcam';
-import { Loader2, LogOut, Camera, RefreshCcw, Check, UserPlus } from 'lucide-react';
+import { Loader2, Camera, RefreshCcw, Check, UserPlus } from 'lucide-react';
+
+function getLocalUid() {
+  if (typeof window === 'undefined') return 'temp-uid';
+  let uid = localStorage.getItem('pb_uid');
+  if (!uid) {
+    uid = 'user_' + Math.random().toString(36).substring(2, 9);
+    localStorage.setItem('pb_uid', uid);
+  }
+  return uid;
+}
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<{uid: string} | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return unsub;
+    setUser({ uid: getLocalUid() });
+    setLoading(false);
   }, []);
 
   if (loading) {
@@ -28,30 +34,12 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-50 p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mb-6">
-            <Camera className="w-8 h-8 text-zinc-900" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Photobooth Duo</h1>
-          <p className="text-zinc-500 mb-8 text-sm">Ambil foto bersama secara real-time dari dua device berbeda.</p>
-          <button 
-            onClick={loginWithGoogle} 
-            className="w-full py-3 bg-zinc-900 text-white rounded-xl font-medium hover:bg-zinc-800 transition-colors"
-          >
-            Masuk dengan Google
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (!user) return null;
 
   return <MainApp user={user} />;
 }
 
-function MainApp({ user }: { user: User }) {
+function MainApp({ user }: { user: {uid: string} }) {
   const [roomCode, setRoomCode] = useState('');
   const [role, setRole] = useState<'host' | 'guest' | null>(null);
   const [joinInput, setJoinInput] = useState('');
@@ -141,12 +129,6 @@ function MainApp({ user }: { user: User }) {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-50 p-4">
-      <div className="absolute top-4 right-4">
-        <button onClick={logout} className="p-2 text-zinc-500 hover:bg-zinc-100 rounded-full transition-colors">
-          <LogOut className="w-5 h-5" />
-        </button>
-      </div>
-      
       <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-100 max-w-sm w-full">
         <h2 className="text-xl font-bold mb-6 text-center">Pilih Mode</h2>
         
@@ -396,8 +378,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
           </div>
           <span className="text-xs text-zinc-400 capitalize">{role}</span>
         </div>
-        <button onClick={onLeave} className="text-zinc-400 hover:text-white p-2">
-          <LogOut className="w-5 h-5" />
+        <button onClick={onLeave} className="text-zinc-400 hover:text-white px-3 py-1 text-sm font-medium">
+          Keluar
         </button>
       </div>
 

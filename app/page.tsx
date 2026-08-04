@@ -225,8 +225,23 @@ function MainApp({ user }: { user: {uid: string} }) {
   );
 }
 
+const filterOptions = [
+  { id: 'normal', name: 'Normal', style: 'none' },
+  { id: 'bw', name: 'B&W', style: 'grayscale(100%)' },
+  { id: 'sepia', name: 'Sepia', style: 'sepia(100%)' },
+  { id: 'warm', name: 'Warm', style: 'sepia(30%) saturate(140%) hue-rotate(-10deg)' },
+];
+
+const getFilterCSS = (fid: string) => filterOptions.find(f => f.id === fid)?.style || 'none';
+
 function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: 'host'|'guest', onLeave: () => void }) {
   const [room, setRoom] = useState<any>(null);
+  const roomRef = useRef<any>(null);
+  
+  useEffect(() => {
+    roomRef.current = room;
+  }, [room]);
+
   const [countdown, setCountdown] = useState<number | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const webcamRef = useRef<Webcam>(null);
@@ -263,7 +278,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
           if (data.host.ready && data.guest.ready && data.status !== 'countdown') {
             updateDoc(ref, {
               status: 'countdown',
-              countdownStartAt: Date.now() + 4000 // 4 detik dari sekarang untuk buffer jaringan
+              countdownStartAt: Date.now() + 4000, // 4 detik dari sekarang untuk buffer jaringan
+              poseIndex: 0
             });
           }
         }
@@ -303,15 +319,27 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
           clearInterval(interval);
           setCountdown(0);
           capturePhoto();
+          
+          if (role === 'host') {
+             const layout = room.layout || 'split-vertical';
+             const requiredPoses = layout === 'grid' ? 2 : 1;
+             const currentPose = (room.poseIndex || 0) + 1;
+             if (currentPose < requiredPoses) {
+                 updateDoc(doc(db, 'rooms', roomCode), {
+                     poseIndex: currentPose,
+                     countdownStartAt: Date.now() + 4000,
+                 });
+             }
+          }
         } else {
           setCountdown(Math.ceil(remaining / 1000));
         }
       }, 100);
       return () => clearInterval(interval);
     } else {
-      setCountdown(null);
+      setTimeout(() => setCountdown(null), 0);
     }
-  }, [room?.status, room?.countdownStartAt]);
+  }, [room?.status, room?.countdownStartAt, room?.poseIndex]);
   
   // 4. Compositing saat kedua foto siap
   useEffect(() => {
@@ -327,7 +355,16 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
             compositePhotos();
         }
     }
-  }, [room?.host?.photoReady, room?.guest?.photoReady, room?.status, role]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    room?.host?.photoReady, 
+    room?.guest?.photoReady, 
+    room?.status, 
+    role,
+    room?.host?.filter,
+    room?.guest?.filter,
+    room?.overlayBackground
+  ]);
 
   const toggleReady = () => {
     if (!room) return;
@@ -366,32 +403,51 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
 
   const capturePhoto = useCallback(() => {
     if (webcamRef.current) {
-      // Ambil screenshot dengan rasio portrait 3:4
-      const imageSrc = webcamRef.current.getScreenshot({ width: 480, height: 640 });
+      // Ambil screenshot full resolution, biarkan drawCover yang crop.
+      const imageSrc = webcamRef.current.getScreenshot();
       if (imageSrc) {
+        const currentRoom = roomRef.current;
+        const currentPhotos = currentRoom?.[role]?.photoUrls || [];
+        const newPhotos = [...currentPhotos, imageSrc];
+        
+        const layout = currentRoom?.layout || 'split-vertical';
+        const requiredPoses = layout === 'grid' ? 2 : 1;
+        const isFinished = newPhotos.length >= requiredPoses;
+
         updateDoc(doc(db, 'rooms', roomCode), {
-          [`${role}.photoUrl`]: imageSrc,
-          [`${role}.photoReady`]: true
+          [`${role}.photoUrls`]: newPhotos,
+          [`${role}.photoReady`]: isFinished
         });
       }
     }
   }, [roomCode, role]);
 
   const compositePhotos = useCallback(() => {
-    if (!canvasRef.current || !room?.host?.photoUrl || !room?.guest?.photoUrl) return;
+    const currentRoom = roomRef.current;
+    if (!canvasRef.current || !currentRoom?.host?.photoUrls || !currentRoom?.guest?.photoUrls) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    const hostImg = new Image();
-    const guestImg = new Image();
+    // Set aspect ratio 2R portrait (600x840) -> 2.5 : 3.5 = 1 : 1.4
+    canvas.width = 600; 
+    canvas.height = 840; 
     
-    canvas.width = 640; 
-    canvas.height = 976; 
-    
-    hostImg.onload = () => {
-      guestImg.onload = () => {
-         const bg = room.overlayBackground || '#ffffff';
+    const loadImages = (urls: string[]) => {
+       return Promise.all(urls.map(url => {
+           return new Promise<HTMLImageElement>((resolve) => {
+               const img = new Image();
+               img.onload = () => resolve(img);
+               img.src = url;
+           });
+       }));
+    };
+
+    Promise.all([
+        loadImages(currentRoom.host.photoUrls),
+        loadImages(currentRoom.guest.photoUrls)
+    ]).then(([hostImgs, guestImgs]) => {
+         const bg = currentRoom.overlayBackground || '#ffffff';
          ctx.fillStyle = bg;
          ctx.fillRect(0, 0, canvas.width, canvas.height);
          
@@ -410,64 +466,66 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                  sx = 0;
                  sy = (img.height - sh) / 2;
              }
-             ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+             
+             ctx.save();
+             ctx.translate(x + w, y);
+             ctx.scale(-1, 1);
+             ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+             ctx.restore();
          };
 
-         const layout = room.layout || 'split-vertical';
-         const hostFilter = room.host.filter || 'normal';
-         const guestFilter = room.guest.filter || 'normal';
+         const layout = currentRoom.layout || 'split-vertical';
+         const hostFilter = currentRoom.host.filter || 'normal';
+         const guestFilter = currentRoom.guest.filter || 'normal';
          
          if (layout === 'split-horizontal') {
              ctx.filter = getFilterCSS(hostFilter);
-             drawCover(hostImg, 0, 0, 640, 488);
+             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 600, 420);
              ctx.filter = getFilterCSS(guestFilter);
-             drawCover(guestImg, 0, 488, 640, 488);
+             if (guestImgs[0]) drawCover(guestImgs[0], 0, 420, 600, 420);
              
              ctx.filter = 'none';
              ctx.strokeStyle = bg;
-             ctx.lineWidth = 6;
+             ctx.lineWidth = 8;
              ctx.beginPath();
-             ctx.moveTo(0, 488);
-             ctx.lineTo(640, 488);
+             ctx.moveTo(0, 420);
+             ctx.lineTo(600, 420);
              ctx.stroke();
          } else if (layout === 'grid') {
              ctx.filter = getFilterCSS(hostFilter);
-             drawCover(hostImg, 0, 0, 320, 488);
-             drawCover(hostImg, 320, 488, 320, 488);
+             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 420);
+             if (hostImgs[1]) drawCover(hostImgs[1], 300, 420, 300, 420);
              
              ctx.filter = getFilterCSS(guestFilter);
-             drawCover(guestImg, 320, 0, 320, 488);
-             drawCover(guestImg, 0, 488, 320, 488);
+             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 420);
+             if (guestImgs[1]) drawCover(guestImgs[1], 0, 420, 300, 420);
 
              ctx.filter = 'none';
              ctx.strokeStyle = bg;
-             ctx.lineWidth = 6;
+             ctx.lineWidth = 8;
              ctx.beginPath();
-             ctx.moveTo(320, 0);
-             ctx.lineTo(320, 976);
-             ctx.moveTo(0, 488);
-             ctx.lineTo(640, 488);
+             ctx.moveTo(300, 0);
+             ctx.lineTo(300, 840);
+             ctx.moveTo(0, 420);
+             ctx.lineTo(600, 420);
              ctx.stroke();
          } else {
              // split-vertical
              ctx.filter = getFilterCSS(hostFilter);
-             drawCover(hostImg, 0, 0, 320, 976);
+             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 840);
              ctx.filter = getFilterCSS(guestFilter);
-             drawCover(guestImg, 320, 0, 320, 976);
+             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 840);
              
              ctx.filter = 'none';
              ctx.strokeStyle = bg;
-             ctx.lineWidth = 6;
+             ctx.lineWidth = 8;
              ctx.beginPath();
-             ctx.moveTo(320, 0);
-             ctx.lineTo(320, 976);
+             ctx.moveTo(300, 0);
+             ctx.lineTo(300, 840);
              ctx.stroke();
          }
-      };
-      guestImg.src = room.guest.photoUrl;
-    };
-    hostImg.src = room.host.photoUrl;
-  }, [room]);
+    });
+  }, []);
   
   const resetSession = () => {
     // Host yang berhak reset state
@@ -478,8 +536,9 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
             'guest.ready': false,
             'host.photoReady': false,
             'guest.photoReady': false,
-            'host.photoUrl': null,
-            'guest.photoUrl': null,
+            'host.photoUrls': [],
+            'guest.photoUrls': [],
+            poseIndex: 0,
             countdownStartAt: null
         });
     }
@@ -629,6 +688,15 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
               {/* Flash effect when countdown reaches 0 */}
               {countdown === 0 && (
                 <div className="absolute inset-0 bg-white z-20 animate-out fade-out duration-1000"></div>
+              )}
+              
+              {/* Overlay Poses Indicator */}
+              {countdown !== null && room?.layout === 'grid' && (
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none z-10">
+                   <div className="bg-black/60 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md font-bold shadow-lg">
+                     Foto {(room.poseIndex || 0) + 1} / 2
+                   </div>
+                </div>
               )}
               
               {/* Other user status overlay */}

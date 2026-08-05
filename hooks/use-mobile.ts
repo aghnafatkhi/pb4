@@ -8,15 +8,10 @@ export function useIsMobile() {
   React.useEffect(() => {
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
     const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+      setTimeout(() => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT), 0)
     }
     mql.addEventListener("change", onChange)
-    
-    // Set initial value without triggering the synchronous setState warning by putting it in a microtask
-    queueMicrotask(() => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    })
-    
+    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
     return () => mql.removeEventListener("change", onChange)
   }, [])
 

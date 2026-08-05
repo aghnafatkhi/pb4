@@ -1,5 +1,5 @@
 {
-  "name": "Dari Ghina Dari Aghna",
+  "name": "Dari Aghna Untuk Ghina",
   "description": "Clean, minimalist, romantic real-time shared photobooth",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase';
 import { doc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { generateRoomCode } from '@/lib/utils';
 import { CustomWebcam } from '@/components/CustomWebcam';
-import { Loader2, Camera, RefreshCcw, Check, Download, Image as ImageIcon, Sparkles, Heart, ArrowLeft, Share2, Copy } from 'lucide-react';
+import { Loader2, Camera, RefreshCcw, Check, Download, Heart, ArrowLeft, Copy } from 'lucide-react';
 
 function getLocalUid() {
   if (typeof window === 'undefined') return 'temp-uid';
@@ -49,13 +49,16 @@ function PhotoboothRouter({ user }: { user: { uid: string } }) {
   const [role, setRole] = useState<'host' | 'guest' | null>(null);
 
   useEffect(() => {
-    const hash = window.location.hash.replace('#', '').trim();
-    if (hash) {
-      setTimeout(() => {
+    const checkHash = () => {
+      const hash = window.location.hash.replace('#', '').trim();
+      if (hash) {
         setRoomCode(hash);
         setRole('guest');
-      }, 0);
-    }
+      }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
   }, []);
 
   if (roomCode && role) {
@@ -88,7 +91,6 @@ function PhotoboothHome({ user, onHost }: { user: { uid: string }, onHost: (code
   const [creating, setCreating] = useState(false);
   const [selectedLayout, setSelectedLayout] = useState('grid');
   const [joinCode, setJoinCode] = useState('');
-  const [copied, setCopied] = useState(false);
 
   const createRoom = async () => {
     setCreating(true);
@@ -123,21 +125,16 @@ function PhotoboothHome({ user, onHost }: { user: { uid: string }, onHost: (code
 
   return (
     <div className="min-h-dvh flex flex-col justify-between bg-[#FDFBF9] text-[#2C2825] px-5 py-8 max-w-md mx-auto">
-      {/* Header / Title */}
       <header className="text-center pt-4 pb-2">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#F3EDE6] text-[#786C60] text-xs font-medium tracking-wide mb-3">
           <Heart className="w-3 h-3 fill-[#786C60]" />
           <span>Shared Photobooth</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-serif font-semibold tracking-tight text-[#2C2825] mb-2">
-          Dari Ghina Dari Aghna
+          Dari Aghna Untuk Ghina
         </h1>
-        <p className="text-[#8C8074] text-sm max-w-xs mx-auto leading-relaxed">
-          Abadikan momen manis bersama pasangan secara langsung dari perangkat masing-masing.
-        </p>
       </header>
 
-      {/* Main Card / Controls */}
       <main className="my-auto space-y-6 bg-white p-6 rounded-3xl border border-[#EFE8E1] shadow-sm">
         <div>
           <label className="block text-xs font-medium uppercase tracking-wider text-[#9E9388] mb-3">
@@ -223,9 +220,8 @@ function PhotoboothHome({ user, onHost }: { user: { uid: string }, onHost: (code
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="text-center pt-6 text-xs text-[#9E9388]">
-        <p>Photobooth Spesial &bull; Dari Ghina Dari Aghna</p>
+        <p>Photobooth Spesial &bull; Dari Aghna Untuk Ghina</p>
       </footer>
     </div>
   );
@@ -284,7 +280,6 @@ function PhotoboothRoom({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Canvas size: 600x900 (2:3 aspect ratio)
     canvas.width = 600;
     canvas.height = 900;
 
@@ -379,14 +374,11 @@ function PhotoboothRoom({
           drawCover(guestImgs[0], padding, padding + cellH + spacing, cellW, cellH);
       }
 
-      // Reset filter for branding
       ctx.filter = 'none';
-
-      // Title & Date Branding
       ctx.fillStyle = '#2C2825';
       ctx.textAlign = 'center';
       ctx.font = '600 24px "Playfair Display", Georgia, serif';
-      ctx.fillText('Dari Ghina Dari Aghna', canvas.width / 2, canvas.height - 62);
+      ctx.fillText('Dari Aghna Untuk Ghina', canvas.width / 2, canvas.height - 62);
 
       ctx.fillStyle = '#8C8074';
       ctx.font = '400 13px system-ui, sans-serif';
@@ -404,7 +396,8 @@ function PhotoboothRoom({
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'rooms', roomCode), (docSnap) => {
-      if (docSnap.exists()) {        const data = docSnap.data();
+      if (docSnap.exists()) {
+        const data = docSnap.data();
         setRoom(data);
 
         if (role === 'guest' && data.guest.uid === null) {
@@ -549,7 +542,7 @@ function PhotoboothRoom({
   const downloadPhoto = () => {
     if (!canvasRef.current) return;
     const link = document.createElement('a');
-    link.download = `DariGhinaDariAghna-${roomCode}.jpg`;
+    link.download = `DariAghnaUntukGhina-${roomCode}.jpg`;
     link.href = canvasRef.current.toDataURL('image/jpeg', 0.9);
     link.click();
   };
@@ -579,7 +572,6 @@ function PhotoboothRoom({
 
   return (
     <div className="min-h-dvh bg-[#FDFBF9] text-[#2C2825] flex flex-col max-w-md mx-auto relative">
-      {/* Top Navigation */}
       <header className="flex items-center justify-between px-5 py-4 border-b border-[#EFE8E1] bg-[#FDFBF9]/90 backdrop-blur-md sticky top-0 z-40">
         <button
           type="button"
@@ -592,7 +584,7 @@ function PhotoboothRoom({
 
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono font-bold tracking-widest px-2.5 py-1 bg-[#F3EDE6] rounded-full border border-[#E8DED5] text-[#2C2825]">
-            #{roomCode}
+            {roomCode}
           </span>
           <button
             type="button"
@@ -605,16 +597,13 @@ function PhotoboothRoom({
         </div>
       </header>
 
-      {/* Main Container */}
       <main className="flex-1 flex flex-col justify-center px-5 py-6">
         {isCaptured ? (
-          /* State: Result Captured */
           <div className="flex flex-col items-center space-y-5 animate-in fade-in duration-300">
             <div className="w-full aspect-[2/3] max-w-xs rounded-xl shadow-lg border border-[#EFE8E1] bg-white overflow-hidden p-2">
               <canvas ref={canvasRef} className="w-full h-full object-contain rounded-lg" />
             </div>
 
-            {/* Filter Selector */}
             <div className="w-full bg-white p-4 rounded-2xl border border-[#EFE8E1] shadow-xs">
               <span className="block text-[11px] font-semibold text-[#9E9388] uppercase tracking-wider mb-2.5">
                 Filter Warna
@@ -637,7 +626,6 @@ function PhotoboothRoom({
               </div>
             </div>
 
-            {/* Frame Background (Host only) */}
             {role === 'host' && (
               <div className="w-full bg-white p-4 rounded-2xl border border-[#EFE8E1] shadow-xs">
                 <span className="block text-[11px] font-semibold text-[#9E9388] uppercase tracking-wider mb-2.5">
@@ -667,7 +655,6 @@ function PhotoboothRoom({
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="w-full space-y-2 pt-1">
               <button
                 type="button"
@@ -697,9 +684,7 @@ function PhotoboothRoom({
             </div>
           </div>
         ) : (
-          /* State: Camera / Session */
           <div className="flex flex-col items-center">
-            {/* Camera Viewport */}
             <div className="w-full aspect-[3/4] max-w-xs relative rounded-3xl overflow-hidden bg-zinc-900 border-4 border-white shadow-md">
               {cameraError ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-[#F9F6F3]">
@@ -720,7 +705,6 @@ function PhotoboothRoom({
                 />
               )}
 
-              {/* Countdown Overlay */}
               {countdown !== null && countdown > 0 && !cameraError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-xs z-20">
                   <span className="text-8xl font-serif font-bold text-white drop-shadow-md animate-pulse">
@@ -729,12 +713,10 @@ function PhotoboothRoom({
                 </div>
               )}
 
-              {/* Flash effect */}
               {countdown === 0 && (
                 <div className="absolute inset-0 bg-white z-30 transition-opacity duration-700 opacity-100"></div>
               )}
 
-              {/* Pose Indicator */}
               {countdown !== null && room?.layout === 'grid' && (
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none z-10">
                   <span className="bg-black/60 text-white text-[11px] px-3.5 py-1.5 rounded-full backdrop-blur-md font-medium tracking-wider uppercase">
@@ -743,7 +725,6 @@ function PhotoboothRoom({
                 </div>
               )}
 
-              {/* Partner Status Badge */}
               {countdown === null && (
                 <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none z-10">
                   {!otherData?.connected ? (
@@ -761,7 +742,6 @@ function PhotoboothRoom({
               )}
             </div>
 
-            {/* Bottom Controls */}
             {countdown === null && (
               <div className="w-full max-w-xs mt-6 flex flex-col items-center space-y-3">
                 <p className="text-xs font-medium text-[#8C8074] h-4 tracking-wide">

@@ -15,7 +15,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: 'Dari Ghina Dari Aghna',
+  title: 'Dari Aghna Untuk Ghina',
   description: 'Shared Photobooth for Ghina & Aghna',
 };
 

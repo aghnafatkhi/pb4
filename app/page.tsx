@@ -49,7 +49,7 @@ function MainApp({ user }: { user: {uid: string} }) {
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
   const [isConfiguring, setIsConfiguring] = useState(false);
-  const [selectedLayout, setSelectedLayout] = useState('split-vertical');
+  const [selectedLayout, setSelectedLayout] = useState('2-frames');
 
   const createRoom = async () => {
     setCreating(true);
@@ -141,25 +141,25 @@ function MainApp({ user }: { user: {uid: string} }) {
           
           <div className="flex flex-col gap-3 mb-8">
             <button 
-              onClick={() => setSelectedLayout('split-vertical')}
-              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === 'split-vertical' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+              onClick={() => setSelectedLayout('2-frames')}
+              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === '2-frames' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
             >
-              <div className="font-semibold mb-1">Split Vertical</div>
-              <div className="text-xs text-zinc-500">2 Foto berdampingan (kiri-kanan)</div>
+              <div className="font-semibold mb-1">2 Frames</div>
+              <div className="text-xs text-zinc-500">2 kali foto, gaya strip photobooth</div>
             </button>
             <button 
-              onClick={() => setSelectedLayout('split-horizontal')}
-              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === 'split-horizontal' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+              onClick={() => setSelectedLayout('3-frames')}
+              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === '3-frames' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
             >
-              <div className="font-semibold mb-1">Split Horizontal</div>
-              <div className="text-xs text-zinc-500">2 Foto bersusun (atas-bawah)</div>
+              <div className="font-semibold mb-1">3 Frames</div>
+              <div className="text-xs text-zinc-500">3 kali foto, gaya strip photobooth</div>
             </button>
             <button 
-              onClick={() => setSelectedLayout('grid')}
-              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === 'grid' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+              onClick={() => setSelectedLayout('4-frames')}
+              className={`p-4 rounded-xl border-2 text-left transition-colors ${selectedLayout === '4-frames' ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 hover:border-zinc-300'}`}
             >
-              <div className="font-semibold mb-1">Grid 4-Kotak</div>
-              <div className="text-xs text-zinc-500">4 Foto dalam susunan grid</div>
+              <div className="font-semibold mb-1">4 Frames</div>
+              <div className="text-xs text-zinc-500">4 kali foto, gaya strip photobooth</div>
             </button>
           </div>
 
@@ -261,8 +261,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
         const currentPhotos = currentRoom?.[role]?.photoUrls || [];
         const newPhotos = [...currentPhotos, imageSrc];
         
-        const layout = currentRoom?.layout || 'split-vertical';
-        const requiredPoses = layout === 'grid' ? 2 : 1;
+        const layout = currentRoom?.layout || '2-frames';
+        const requiredPoses = layout === '4-frames' ? 4 : layout === '3-frames' ? 3 : 2;
         const isFinished = newPhotos.length >= requiredPoses;
 
         updateDoc(doc(db, 'rooms', roomCode), {
@@ -280,9 +280,9 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Set aspect ratio 2R portrait (600x840) -> 2.5 : 3.5 = 1 : 1.4
-    canvas.width = 600; 
-    canvas.height = 840; 
+    // Set aspect ratio 2R portrait HD (1200x1680) -> 2.5" x 3.5" high resolution
+    canvas.width = 1200; 
+    canvas.height = 1680; 
     
     const loadImages = (urls: string[]) => {
        return Promise.all(urls.map(url => {
@@ -301,6 +301,9 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          const bg = currentRoom.overlayBackground || '#ffffff';
          ctx.fillStyle = bg;
          ctx.fillRect(0, 0, canvas.width, canvas.height);
+         
+         ctx.imageSmoothingEnabled = true;
+         ctx.imageSmoothingQuality = 'high';
          
          const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
              const imgRatio = img.width / img.height;
@@ -324,32 +327,44 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
              ctx.restore();
          };
 
-         const layout = currentRoom.layout || 'split-vertical';
+         const layout = currentRoom.layout || '2-frames';
+         const framesCount = layout === '4-frames' ? 4 : layout === '3-frames' ? 3 : 2;
          const hostFilter = currentRoom.host.filter || 'normal';
          const guestFilter = currentRoom.guest.filter || 'normal';
          
-         if (layout === 'split-horizontal') {
+         const gap = 48;
+         const totalGaps = gap * (framesCount - 1);
+         const paddingX = 48;
+         const paddingTop = 48;
+         const paddingBottom = 220;
+         
+         const availableHeight = canvas.height - paddingTop - paddingBottom - totalGaps;
+         const rowHeight = availableHeight / framesCount;
+         const photoWidth = (canvas.width - (paddingX * 2)) / 2; // host and guest share row width
+         
+         for (let i = 0; i < framesCount; i++) {
+             const y = paddingTop + i * (rowHeight + gap);
+             
              ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 600, 420);
-             ctx.filter = getFilterCSS(guestFilter);
-             if (guestImgs[0]) drawCover(guestImgs[0], 0, 420, 600, 420);
-         } else if (layout === 'grid') {
-             ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 420);
-             if (hostImgs[1]) drawCover(hostImgs[1], 300, 420, 300, 420);
+             if (hostImgs[i]) drawCover(hostImgs[i], paddingX, y, photoWidth, rowHeight);
              
              ctx.filter = getFilterCSS(guestFilter);
-             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 420);
-             if (guestImgs[1]) drawCover(guestImgs[1], 0, 420, 300, 420);
-         } else {
-             // split-vertical
-             ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 840);
-             ctx.filter = getFilterCSS(guestFilter);
-             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 840);
+             if (guestImgs[i]) drawCover(guestImgs[i], paddingX + photoWidth, y, photoWidth, rowHeight);
          }
+
+         // Footer photobooth branding in HD
+         ctx.filter = 'none';
+         const isDarkBg = bg === '#000000';
+         ctx.fillStyle = isDarkBg ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.6)';
+         ctx.font = 'bold 28px sans-serif';
+         ctx.textAlign = 'center';
+         ctx.fillText('PHOTOBOOTH 2R • HD STRIP', canvas.width / 2, canvas.height - 110);
+         
+         ctx.font = '500 22px monospace';
+         const dateStr = new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
+         ctx.fillText(`${dateStr} • ROOM #${roomCode}`, canvas.width / 2, canvas.height - 70);
     });
-  }, []);
+  }, [roomCode]);
 
   // 1. Sinkronisasi Koneksi (Cleanup on disconnect)
   useEffect(() => {
@@ -423,8 +438,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
           capturePhoto();
           
           if (role === 'host') {
-             const layout = room.layout || 'split-vertical';
-             const requiredPoses = layout === 'grid' ? 2 : 1;
+             const layout = room.layout || '2-frames';
+             const requiredPoses = layout === '4-frames' ? 4 : layout === '3-frames' ? 3 : 2;
              const currentPose = (room.poseIndex || 0) + 1;
              if (currentPose < requiredPoses) {
                  updateDoc(doc(db, 'rooms', roomCode), {
@@ -608,7 +623,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                 className="flex items-center justify-center gap-2 w-full py-4 bg-zinc-100 text-black rounded-full font-bold shadow-xl active:scale-95 transition-transform"
               >
                 <Download className="w-5 h-5" />
-                Download Foto
+                Download Foto (HD 1200x1680)
               </button>
 
               {role === 'host' && (
@@ -629,7 +644,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
           /* State: Camera / Waiting */
           <div className="w-full max-w-sm flex flex-col relative items-center">
             <div className="relative w-full max-h-[65vh] rounded-3xl overflow-hidden bg-black border border-zinc-800 shadow-2xl transition-all duration-500" style={{
-               aspectRatio: room?.layout === 'split-horizontal' ? '600 / 420' : room?.layout === 'split-vertical' ? '300 / 840' : '300 / 420'
+               aspectRatio: room?.layout === '4-frames' ? '276 / 156' : room?.layout === '3-frames' ? '276 / 216' : '276 / 336'
             }}>
               {cameraError ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-zinc-100">
@@ -644,7 +659,11 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                   mirrored={true}
                   forceScreenshotSourceSize={true}
                   screenshotFormat="image/jpeg"
-                  videoConstraints={{ facingMode: "user" }}
+                  videoConstraints={{ 
+                    facingMode: "user",
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                  }}
                   onUserMediaError={(err) => setCameraError(typeof err === 'string' ? err : err.message || 'Gagal mengakses kamera.')}
                   className="w-full h-full object-cover" 
                   style={{ filter: getFilterCSS(myData.filter || 'normal') }}
@@ -664,10 +683,10 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
               )}
               
               {/* Overlay Poses Indicator */}
-              {countdown !== null && room?.layout === 'grid' && (
+              {countdown !== null && (
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none z-10">
                    <div className="bg-black/60 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md font-bold shadow-lg">
-                     Foto {(room.poseIndex || 0) + 1} / 2
+                     Foto {(room.poseIndex || 0) + 1} / {room?.layout === '4-frames' ? 4 : room?.layout === '3-frames' ? 3 : 2}
                    </div>
                 </div>
               )}

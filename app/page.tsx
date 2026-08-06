@@ -22,8 +22,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setUser({ uid: getLocalUid() });
-    setLoading(false);
+    const timer = setTimeout(() => {
+      setUser({ uid: getLocalUid() });
+      setLoading(false);
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   if (loading) {
@@ -249,6 +252,105 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
   
   const otherRole = role === 'host' ? 'guest' : 'host';
 
+  const capturePhoto = useCallback(() => {
+    if (webcamRef.current) {
+      // Ambil screenshot full resolution, biarkan drawCover yang crop.
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (imageSrc) {
+        const currentRoom = roomRef.current;
+        const currentPhotos = currentRoom?.[role]?.photoUrls || [];
+        const newPhotos = [...currentPhotos, imageSrc];
+        
+        const layout = currentRoom?.layout || 'split-vertical';
+        const requiredPoses = layout === 'grid' ? 2 : 1;
+        const isFinished = newPhotos.length >= requiredPoses;
+
+        updateDoc(doc(db, 'rooms', roomCode), {
+          [`${role}.photoUrls`]: newPhotos,
+          [`${role}.photoReady`]: isFinished
+        });
+      }
+    }
+  }, [roomCode, role]);
+
+  const compositePhotos = useCallback(() => {
+    const currentRoom = roomRef.current;
+    if (!canvasRef.current || !currentRoom?.host?.photoUrls || !currentRoom?.guest?.photoUrls) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Set aspect ratio 2R portrait (600x840) -> 2.5 : 3.5 = 1 : 1.4
+    canvas.width = 600; 
+    canvas.height = 840; 
+    
+    const loadImages = (urls: string[]) => {
+       return Promise.all(urls.map(url => {
+           return new Promise<HTMLImageElement>((resolve) => {
+               const img = new Image();
+               img.onload = () => resolve(img);
+               img.src = url;
+           });
+       }));
+    };
+
+    Promise.all([
+        loadImages(currentRoom.host.photoUrls),
+        loadImages(currentRoom.guest.photoUrls)
+    ]).then(([hostImgs, guestImgs]) => {
+         const bg = currentRoom.overlayBackground || '#ffffff';
+         ctx.fillStyle = bg;
+         ctx.fillRect(0, 0, canvas.width, canvas.height);
+         
+         const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
+             const imgRatio = img.width / img.height;
+             const targetRatio = w / h;
+             let sx, sy, sw, sh;
+             if (imgRatio > targetRatio) {
+                 sh = img.height;
+                 sw = sh * targetRatio;
+                 sx = (img.width - sw) / 2;
+                 sy = 0;
+             } else {
+                 sw = img.width;
+                 sh = sw / targetRatio;
+                 sx = 0;
+                 sy = (img.height - sh) / 2;
+             }
+             
+             ctx.save();
+             ctx.translate(x, y);
+             ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+             ctx.restore();
+         };
+
+         const layout = currentRoom.layout || 'split-vertical';
+         const hostFilter = currentRoom.host.filter || 'normal';
+         const guestFilter = currentRoom.guest.filter || 'normal';
+         
+         if (layout === 'split-horizontal') {
+             ctx.filter = getFilterCSS(hostFilter);
+             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 600, 420);
+             ctx.filter = getFilterCSS(guestFilter);
+             if (guestImgs[0]) drawCover(guestImgs[0], 0, 420, 600, 420);
+         } else if (layout === 'grid') {
+             ctx.filter = getFilterCSS(hostFilter);
+             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 420);
+             if (hostImgs[1]) drawCover(hostImgs[1], 300, 420, 300, 420);
+             
+             ctx.filter = getFilterCSS(guestFilter);
+             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 420);
+             if (guestImgs[1]) drawCover(guestImgs[1], 0, 420, 300, 420);
+         } else {
+             // split-vertical
+             ctx.filter = getFilterCSS(hostFilter);
+             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 840);
+             ctx.filter = getFilterCSS(guestFilter);
+             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 840);
+         }
+    });
+  }, []);
+
   // 1. Sinkronisasi Koneksi (Cleanup on disconnect)
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -339,7 +441,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     } else {
       setTimeout(() => setCountdown(null), 0);
     }
-  }, [room?.status, room?.countdownStartAt, room?.poseIndex]);
+  }, [room?.status, room?.countdownStartAt, room?.poseIndex, capturePhoto, role, room?.layout, roomCode]);
   
   // 4. Compositing saat kedua foto siap
   useEffect(() => {
@@ -363,7 +465,9 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     role,
     room?.host?.filter,
     room?.guest?.filter,
-    room?.overlayBackground
+    room?.overlayBackground,
+    compositePhotos,
+    roomCode
   ]);
 
   const toggleReady = () => {
@@ -381,15 +485,6 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     }
   };
 
-  const filterOptions = [
-    { id: 'normal', name: 'Normal', style: 'none' },
-    { id: 'bw', name: 'B&W', style: 'grayscale(100%)' },
-    { id: 'sepia', name: 'Sepia', style: 'sepia(100%)' },
-    { id: 'warm', name: 'Warm', style: 'sepia(30%) saturate(140%) hue-rotate(-10deg)' },
-  ];
-
-  const getFilterCSS = (fid: string) => filterOptions.find(f => f.id === fid)?.style || 'none';
-
   const changeFilter = (newFilter: string) => {
     if (!room) return;
     updateDoc(doc(db, 'rooms', roomCode), { [`${role}.filter`]: newFilter });
@@ -401,132 +496,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     }
   };
 
-  const capturePhoto = useCallback(() => {
-    if (webcamRef.current) {
-      // Ambil screenshot full resolution, biarkan drawCover yang crop.
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (imageSrc) {
-        const currentRoom = roomRef.current;
-        const currentPhotos = currentRoom?.[role]?.photoUrls || [];
-        const newPhotos = [...currentPhotos, imageSrc];
-        
-        const layout = currentRoom?.layout || 'split-vertical';
-        const requiredPoses = layout === 'grid' ? 2 : 1;
-        const isFinished = newPhotos.length >= requiredPoses;
 
-        updateDoc(doc(db, 'rooms', roomCode), {
-          [`${role}.photoUrls`]: newPhotos,
-          [`${role}.photoReady`]: isFinished
-        });
-      }
-    }
-  }, [roomCode, role]);
-
-  const compositePhotos = useCallback(() => {
-    const currentRoom = roomRef.current;
-    if (!canvasRef.current || !currentRoom?.host?.photoUrls || !currentRoom?.guest?.photoUrls) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    // Set aspect ratio 2R portrait (600x840) -> 2.5 : 3.5 = 1 : 1.4
-    canvas.width = 600; 
-    canvas.height = 840; 
-    
-    const loadImages = (urls: string[]) => {
-       return Promise.all(urls.map(url => {
-           return new Promise<HTMLImageElement>((resolve) => {
-               const img = new Image();
-               img.onload = () => resolve(img);
-               img.src = url;
-           });
-       }));
-    };
-
-    Promise.all([
-        loadImages(currentRoom.host.photoUrls),
-        loadImages(currentRoom.guest.photoUrls)
-    ]).then(([hostImgs, guestImgs]) => {
-         const bg = currentRoom.overlayBackground || '#ffffff';
-         ctx.fillStyle = bg;
-         ctx.fillRect(0, 0, canvas.width, canvas.height);
-         
-         const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
-             const imgRatio = img.width / img.height;
-             const targetRatio = w / h;
-             let sx, sy, sw, sh;
-             if (imgRatio > targetRatio) {
-                 sh = img.height;
-                 sw = sh * targetRatio;
-                 sx = (img.width - sw) / 2;
-                 sy = 0;
-             } else {
-                 sw = img.width;
-                 sh = sw / targetRatio;
-                 sx = 0;
-                 sy = (img.height - sh) / 2;
-             }
-             
-             ctx.save();
-             ctx.translate(x + w, y);
-             ctx.scale(-1, 1);
-             ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
-             ctx.restore();
-         };
-
-         const layout = currentRoom.layout || 'split-vertical';
-         const hostFilter = currentRoom.host.filter || 'normal';
-         const guestFilter = currentRoom.guest.filter || 'normal';
-         
-         if (layout === 'split-horizontal') {
-             ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 600, 420);
-             ctx.filter = getFilterCSS(guestFilter);
-             if (guestImgs[0]) drawCover(guestImgs[0], 0, 420, 600, 420);
-             
-             ctx.filter = 'none';
-             ctx.strokeStyle = bg;
-             ctx.lineWidth = 8;
-             ctx.beginPath();
-             ctx.moveTo(0, 420);
-             ctx.lineTo(600, 420);
-             ctx.stroke();
-         } else if (layout === 'grid') {
-             ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 420);
-             if (hostImgs[1]) drawCover(hostImgs[1], 300, 420, 300, 420);
-             
-             ctx.filter = getFilterCSS(guestFilter);
-             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 420);
-             if (guestImgs[1]) drawCover(guestImgs[1], 0, 420, 300, 420);
-
-             ctx.filter = 'none';
-             ctx.strokeStyle = bg;
-             ctx.lineWidth = 8;
-             ctx.beginPath();
-             ctx.moveTo(300, 0);
-             ctx.lineTo(300, 840);
-             ctx.moveTo(0, 420);
-             ctx.lineTo(600, 420);
-             ctx.stroke();
-         } else {
-             // split-vertical
-             ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[0]) drawCover(hostImgs[0], 0, 0, 300, 840);
-             ctx.filter = getFilterCSS(guestFilter);
-             if (guestImgs[0]) drawCover(guestImgs[0], 300, 0, 300, 840);
-             
-             ctx.filter = 'none';
-             ctx.strokeStyle = bg;
-             ctx.lineWidth = 8;
-             ctx.beginPath();
-             ctx.moveTo(300, 0);
-             ctx.lineTo(300, 840);
-             ctx.stroke();
-         }
-    });
-  }, []);
-  
   const resetSession = () => {
     // Host yang berhak reset state
     if (role === 'host') {
@@ -657,8 +627,10 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
           </div>
         ) : (
           /* State: Camera / Waiting */
-          <div className="w-full max-w-sm flex flex-col relative">
-            <div className="relative rounded-3xl overflow-hidden bg-black aspect-[3/4] border border-zinc-800 shadow-2xl">
+          <div className="w-full max-w-sm flex flex-col relative items-center">
+            <div className="relative w-full max-h-[65vh] rounded-3xl overflow-hidden bg-black border border-zinc-800 shadow-2xl transition-all duration-500" style={{
+               aspectRatio: room?.layout === 'split-horizontal' ? '600 / 420' : room?.layout === 'split-vertical' ? '300 / 840' : '300 / 420'
+            }}>
               {cameraError ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-zinc-100">
                   <Camera className="w-12 h-12 text-red-500 mb-4" />
@@ -669,12 +641,13 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                 <Webcam
                   ref={webcamRef}
                   audio={false}
+                  mirrored={true}
+                  forceScreenshotSourceSize={true}
                   screenshotFormat="image/jpeg"
-                  videoConstraints={{ facingMode: "user", aspectRatio: 3/4 }}
+                  videoConstraints={{ facingMode: "user" }}
                   onUserMediaError={(err) => setCameraError(typeof err === 'string' ? err : err.message || 'Gagal mengakses kamera.')}
-                  className={`w-full h-full object-cover ${role === 'guest' ? '-scale-x-100' : '-scale-x-100'}`} 
+                  className="w-full h-full object-cover" 
                   style={{ filter: getFilterCSS(myData.filter || 'normal') }}
-                  // Note: -scale-x-100 creates a mirror effect
                 />
               )}
               

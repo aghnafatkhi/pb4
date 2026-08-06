@@ -280,9 +280,9 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Set aspect ratio 2R portrait HD (1200x1680) -> 2.5" x 3.5" high resolution
-    canvas.width = 1200; 
-    canvas.height = 1680; 
+    // Set aspect ratio 2R portrait (600x840) -> 2.5 : 3.5 = 1 : 1.4
+    canvas.width = 600; 
+    canvas.height = 840; 
     
     const loadImages = (urls: string[]) => {
        return Promise.all(urls.map(url => {
@@ -301,9 +301,6 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          const bg = currentRoom.overlayBackground || '#ffffff';
          ctx.fillStyle = bg;
          ctx.fillRect(0, 0, canvas.width, canvas.height);
-         
-         ctx.imageSmoothingEnabled = true;
-         ctx.imageSmoothingQuality = 'high';
          
          const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
              const imgRatio = img.width / img.height;
@@ -332,11 +329,11 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          const hostFilter = currentRoom.host.filter || 'normal';
          const guestFilter = currentRoom.guest.filter || 'normal';
          
-         const gap = 48;
+         const gap = 24;
          const totalGaps = gap * (framesCount - 1);
-         const paddingX = 48;
-         const paddingTop = 48;
-         const paddingBottom = 220;
+         const paddingX = 24;
+         const paddingTop = 24;
+         const paddingBottom = 120;
          
          const availableHeight = canvas.height - paddingTop - paddingBottom - totalGaps;
          const rowHeight = availableHeight / framesCount;
@@ -351,20 +348,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
              ctx.filter = getFilterCSS(guestFilter);
              if (guestImgs[i]) drawCover(guestImgs[i], paddingX + photoWidth, y, photoWidth, rowHeight);
          }
-
-         // Footer photobooth branding in HD
-         ctx.filter = 'none';
-         const isDarkBg = bg === '#000000';
-         ctx.fillStyle = isDarkBg ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.6)';
-         ctx.font = 'bold 28px sans-serif';
-         ctx.textAlign = 'center';
-         ctx.fillText('PHOTOBOOTH 2R • HD STRIP', canvas.width / 2, canvas.height - 110);
-         
-         ctx.font = '500 22px monospace';
-         const dateStr = new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' });
-         ctx.fillText(`${dateStr} • ROOM #${roomCode}`, canvas.width / 2, canvas.height - 70);
     });
-  }, [roomCode]);
+  }, []);
 
   // 1. Sinkronisasi Koneksi (Cleanup on disconnect)
   useEffect(() => {
@@ -623,7 +608,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                 className="flex items-center justify-center gap-2 w-full py-4 bg-zinc-100 text-black rounded-full font-bold shadow-xl active:scale-95 transition-transform"
               >
                 <Download className="w-5 h-5" />
-                Download Foto (HD 1200x1680)
+                Download Foto
               </button>
 
               {role === 'host' && (
@@ -659,11 +644,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                   mirrored={true}
                   forceScreenshotSourceSize={true}
                   screenshotFormat="image/jpeg"
-                  videoConstraints={{ 
-                    facingMode: "user",
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 }
-                  }}
+                  videoConstraints={{ facingMode: "user" }}
                   onUserMediaError={(err) => setCameraError(typeof err === 'string' ? err : err.message || 'Gagal mengakses kamera.')}
                   className="w-full h-full object-cover" 
                   style={{ filter: getFilterCSS(myData.filter || 'normal') }}

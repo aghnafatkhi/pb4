@@ -348,8 +348,32 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
              ctx.filter = getFilterCSS(guestFilter);
              if (guestImgs[i]) drawCover(guestImgs[i], paddingX + photoWidth, y, photoWidth, rowHeight);
          }
+
+         // Draw elegant, minimalist photobooth branding at the bottom
+         ctx.filter = 'none';
+         const textColor = bg.toLowerCase() === '#000000' ? '#ffffff' : '#18181b';
+         const subColor = bg.toLowerCase() === '#000000' ? '#a1a1aa' : '#71717a';
+         
+         ctx.fillStyle = textColor;
+         ctx.textAlign = 'center';
+         ctx.textBaseline = 'middle';
+         
+         // Title: elegant style with wide tracking
+         ctx.font = 'bold 20px "Courier New", Courier, monospace';
+         ctx.fillText('P H O T O B O O T H', canvas.width / 2, canvas.height - 70);
+         
+         // Date & Room Code: clean utility text
+         ctx.fillStyle = subColor;
+         ctx.font = '500 13px sans-serif';
+         const dateStr = new Date().toLocaleDateString('id-ID', {
+             day: '2-digit',
+             month: '2-digit',
+             year: 'numeric'
+         }).replace(/\//g, '.');
+         
+         ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 40);
     });
-  }, []);
+  }, [roomCode]);
 
   // 1. Sinkronisasi Koneksi (Cleanup on disconnect)
   useEffect(() => {
@@ -565,7 +589,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
         {/* State: Captured */}
         {isCaptured ? (
           <div className="w-full max-w-sm flex flex-col items-center animate-in fade-in zoom-in duration-500">
-            <div className="w-full aspect-[1/1.52] bg-white rounded-lg p-2 shadow-2xl relative mb-8">
+            <div className="w-full aspect-[5/7] bg-white rounded-lg p-2 shadow-2xl relative mb-8">
               <canvas ref={canvasRef} className="w-full h-full object-contain" />
             </div>
             

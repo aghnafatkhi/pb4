@@ -339,7 +339,11 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     if (bgTheme === 'theme-snoopy') {
         themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/en/5/53/Snoopy_Peanuts.png'];
     } else if (bgTheme === 'theme-ghibli') {
-        themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/en/thumb/c/ca/Studio_Ghibli_logo.svg/512px-Studio_Ghibli_logo.svg.png'];
+        themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/commons/8/86/Studio_Ghibli_portal_logo.png'];
+    } else if (bgTheme === 'theme-miles') {
+        themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/en/5/5d/Miles_Morales_%28Earth-616%29_from_Miles_Morales_Spider-Man_Vol_1_10_001.png'];
+    } else if (bgTheme === 'theme-gwen') {
+        themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/en/5/52/Spider-Gwen.png'];
     }
 
     Promise.all([
@@ -351,6 +355,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          if (bgTheme === 'theme-snoopy') baseColor = '#ffffff';
          if (bgTheme === 'theme-ghibli') baseColor = '#dcfce7'; // light green
          if (bgTheme === 'theme-brat') baseColor = '#8ACE00';
+         if (bgTheme === 'theme-miles') baseColor = '#18181b'; // dark zinc
+         if (bgTheme === 'theme-gwen') baseColor = '#fbcfe8'; // light pink
 
          ctx.fillStyle = baseColor;
          ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -420,21 +426,84 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          if (bgTheme === 'theme-snoopy') {
              if (themeImgs[0]) {
                  // Draw snoopy at the bottom center
-                 const snoopyWidth = 60;
+                 const snoopyWidth = 80;
                  const snoopyHeight = themeImgs[0].height * (snoopyWidth / themeImgs[0].width);
-                 ctx.drawImage(themeImgs[0], canvas.width / 2 - snoopyWidth / 2, canvas.height - 130, snoopyWidth, snoopyHeight);
+                 ctx.drawImage(themeImgs[0], canvas.width / 2 - snoopyWidth / 2, canvas.height - 140, snoopyWidth, snoopyHeight);
+                 
+                 // Draw snoopy overlapping the top right frame slightly
+                 const topSnoopyWidth = 60;
+                 const topSnoopyHeight = themeImgs[0].height * (topSnoopyWidth / themeImgs[0].width);
+                 ctx.save();
+                 ctx.translate(canvas.width - paddingX - 10, paddingTop - 10);
+                 ctx.rotate(15 * Math.PI / 180);
+                 ctx.drawImage(themeImgs[0], -topSnoopyWidth/2, -topSnoopyHeight/2, topSnoopyWidth, topSnoopyHeight);
+                 ctx.restore();
+
+                 // Draw snoopy overlapping the left middle frame slightly
+                 const midSnoopyWidth = 50;
+                 const midSnoopyHeight = themeImgs[0].height * (midSnoopyWidth / themeImgs[0].width);
+                 ctx.save();
+                 ctx.translate(paddingX + 10, canvas.height / 2);
+                 ctx.rotate(-15 * Math.PI / 180);
+                 ctx.drawImage(themeImgs[0], -midSnoopyWidth/2, -midSnoopyHeight/2, midSnoopyWidth, midSnoopyHeight);
+                 ctx.restore();
              }
+             ctx.fillStyle = '#000000';
              ctx.font = 'bold 24px "Courier New", Courier, monospace';
              ctx.fillText('S N O O P Y  P H O T O S', canvas.width / 2, canvas.height - 50);
          } else if (bgTheme === 'theme-ghibli') {
              if (themeImgs[0]) {
-                 const ghibliWidth = 140;
+                 const ghibliWidth = 120;
                  const ghibliHeight = themeImgs[0].height * (ghibliWidth / themeImgs[0].width);
-                 ctx.drawImage(themeImgs[0], canvas.width / 2 - ghibliWidth / 2, canvas.height - 90, ghibliWidth, ghibliHeight);
+                 ctx.drawImage(themeImgs[0], canvas.width / 2 - ghibliWidth / 2, canvas.height - 110, ghibliWidth, ghibliHeight);
              }
              ctx.fillStyle = '#475569';
              ctx.font = '500 14px "Georgia", serif';
              ctx.fillText(`${dateStr}  ~  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 35);
+         } else if (bgTheme === 'theme-miles') {
+             if (themeImgs[0]) {
+                 const mWidth = 100;
+                 const mHeight = themeImgs[0].height * (mWidth / themeImgs[0].width);
+                 // Draw on bottom right
+                 ctx.drawImage(themeImgs[0], canvas.width - mWidth - 20, canvas.height - mHeight - 20, mWidth, mHeight);
+                 
+                 // Draw overlapping top left
+                 const topMWidth = 80;
+                 const topMHeight = themeImgs[0].height * (topMWidth / themeImgs[0].width);
+                 ctx.save();
+                 ctx.translate(paddingX + 20, paddingTop + 20);
+                 ctx.rotate(-20 * Math.PI / 180);
+                 ctx.drawImage(themeImgs[0], -topMWidth/2, -topMHeight/2, topMWidth, topMHeight);
+                 ctx.restore();
+             }
+             ctx.fillStyle = '#ef4444'; // Red text
+             ctx.font = 'bold 28px sans-serif';
+             ctx.fillText('M I L E S', canvas.width / 2, canvas.height - 80);
+             ctx.fillStyle = '#ffffff';
+             ctx.font = '500 16px sans-serif';
+             ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 50);
+         } else if (bgTheme === 'theme-gwen') {
+             if (themeImgs[0]) {
+                 const gWidth = 100;
+                 const gHeight = themeImgs[0].height * (gWidth / themeImgs[0].width);
+                 // Draw on bottom left
+                 ctx.drawImage(themeImgs[0], 20, canvas.height - gHeight - 20, gWidth, gHeight);
+                 
+                 // Draw overlapping top right
+                 const topGWidth = 80;
+                 const topGHeight = themeImgs[0].height * (topGWidth / themeImgs[0].width);
+                 ctx.save();
+                 ctx.translate(canvas.width - paddingX - 20, paddingTop + 20);
+                 ctx.rotate(15 * Math.PI / 180);
+                 ctx.drawImage(themeImgs[0], -topGWidth/2, -topGHeight/2, topGWidth, topGHeight);
+                 ctx.restore();
+             }
+             ctx.fillStyle = '#0ea5e9'; // Cyan text
+             ctx.font = 'bold 28px sans-serif';
+             ctx.fillText('G W E N', canvas.width / 2, canvas.height - 80);
+             ctx.fillStyle = '#ffffff';
+             ctx.font = '500 16px sans-serif';
+             ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 50);
          } else if (bgTheme === 'theme-brat') {
              ctx.font = 'normal 48px Arial, Helvetica, sans-serif';
              // add blur effect
@@ -717,8 +786,10 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                   {id: 'pink', hex: '#fbcfe8'},
                   {id: 'blue', hex: '#bfdbfe'},
                   {id: 'snoopy', hex: 'theme-snoopy', icon: 'https://upload.wikimedia.org/wikipedia/en/5/53/Snoopy_Peanuts.png'},
-                  {id: 'ghibli', hex: 'theme-ghibli', icon: 'https://upload.wikimedia.org/wikipedia/en/thumb/c/ca/Studio_Ghibli_logo.svg/512px-Studio_Ghibli_logo.svg.png'},
-                  {id: 'brat', hex: 'theme-brat', label: 'brat'}
+                  {id: 'ghibli', hex: 'theme-ghibli', icon: 'https://upload.wikimedia.org/wikipedia/commons/8/86/Studio_Ghibli_portal_logo.png'},
+                  {id: 'brat', hex: 'theme-brat', label: 'brat'},
+                  {id: 'miles', hex: 'theme-miles', icon: 'https://upload.wikimedia.org/wikipedia/en/5/5d/Miles_Morales_%28Earth-616%29_from_Miles_Morales_Spider-Man_Vol_1_10_001.png'},
+                  {id: 'gwen', hex: 'theme-gwen', icon: 'https://upload.wikimedia.org/wikipedia/en/5/52/Spider-Gwen.png'}
                 ].map(bg => (
                   <button
                     key={bg.id}

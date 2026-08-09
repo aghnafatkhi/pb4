@@ -5,7 +5,8 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { generateRoomCode } from '@/lib/utils';
 import Webcam from 'react-webcam';
-import { Loader2, Camera, RefreshCcw, Check, UserPlus, Download, MessageSquare, Send } from 'lucide-react';
+
+import { Loader2, Camera, RefreshCcw, Check, UserPlus, Download, MessageSquare, Send, X } from 'lucide-react';
 
 function getLocalUid() {
   if (typeof window === 'undefined') return 'temp-uid';
@@ -186,8 +187,9 @@ function MainApp({ user }: { user: {uid: string} }) {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-[#FFEED6] p-4">
-      <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-100 max-w-sm w-full">
-        <h1 className="text-2xl font-bold mb-8 text-center text-zinc-900 leading-tight">Untuk Ghina <br/><span className="text-zinc-500 font-medium text-lg">Dari Aghna</span></h1>
+      <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-100 max-w-sm w-full relative">
+        <img src="https://upload.wikimedia.org/wikipedia/en/5/53/Snoopy_Peanuts.png" alt="Snoopy" className="w-16 h-16 absolute -top-12 left-1/2 -translate-x-1/2 object-contain drop-shadow-sm" />
+        <h1 className="text-2xl font-bold mb-8 mt-4 text-center text-zinc-900 leading-tight">Untuk Ghina <br/><span className="text-zinc-500 font-medium text-lg">Dari Aghna</span></h1>
         
         <button 
           onClick={() => setIsConfiguring(true)}
@@ -256,11 +258,35 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [chatInput, setChatInput] = useState('');
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [room?.messages]);
+    if (isChatOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [room?.messages?.length, room?.host?.isTyping, room?.guest?.isTyping, isChatOpen]);
+  
+  const handleChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setChatInput(e.target.value);
+    
+    if (roomCode) {
+      updateDoc(doc(db, 'rooms', roomCode), {
+        [`${role}.isTyping`]: true
+      });
+      
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      
+      typingTimeoutRef.current = setTimeout(() => {
+        updateDoc(doc(db, 'rooms', roomCode), {
+          [`${role}.isTyping`]: false
+        });
+      }, 2000);
+    }
+  };
   
   const otherRole = role === 'host' ? 'guest' : 'host';
 
@@ -300,18 +326,33 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
        return Promise.all(urls.map(url => {
            return new Promise<HTMLImageElement>((resolve) => {
                const img = new Image();
+               img.crossOrigin = 'anonymous';
                img.onload = () => resolve(img);
+               img.onerror = () => resolve(img); // resolve anyway to not break Promise.all
                img.src = url;
            });
        }));
     };
 
+    const bgTheme = currentRoom.overlayBackground || '#ffffff';
+    let themeAssetsUrl: string[] = [];
+    if (bgTheme === 'theme-snoopy') {
+        themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/en/5/53/Snoopy_Peanuts.png'];
+    } else if (bgTheme === 'theme-ghibli') {
+        themeAssetsUrl = ['https://upload.wikimedia.org/wikipedia/en/thumb/c/ca/Studio_Ghibli_logo.svg/512px-Studio_Ghibli_logo.svg.png'];
+    }
+
     Promise.all([
         loadImages(currentRoom.host.photoUrls),
-        loadImages(currentRoom.guest.photoUrls)
-    ]).then(([hostImgs, guestImgs]) => {
-         const bg = currentRoom.overlayBackground || '#ffffff';
-         ctx.fillStyle = bg;
+        loadImages(currentRoom.guest.photoUrls),
+        loadImages(themeAssetsUrl)
+    ]).then(([hostImgs, guestImgs, themeImgs]) => {
+         let baseColor = bgTheme;
+         if (bgTheme === 'theme-snoopy') baseColor = '#ffffff';
+         if (bgTheme === 'theme-ghibli') baseColor = '#dcfce7'; // light green
+         if (bgTheme === 'theme-brat') baseColor = '#8ACE00';
+
+         ctx.fillStyle = baseColor;
          ctx.fillRect(0, 0, canvas.width, canvas.height);
          
          const drawCover = (img: HTMLImageElement, x: number, y: number, w: number, h: number) => {
@@ -355,7 +396,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
              const y = paddingTop + i * (rowHeight + gap);
              
              ctx.filter = getFilterCSS(hostFilter);
-             if (hostImgs[i]) drawCover(hostImgs[i], paddingX, y, photoWidth, rowHeight);
+             if (hostImgs[i]) drawCover(hostImgs[i], paddingX,  y, photoWidth, rowHeight);
              
              ctx.filter = getFilterCSS(guestFilter);
              if (guestImgs[i]) drawCover(guestImgs[i], paddingX + photoWidth, y, photoWidth, rowHeight);
@@ -363,27 +404,53 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
 
          // Draw elegant, minimalist photobooth branding at the bottom
          ctx.filter = 'none';
-         const textColor = bg.toLowerCase() === '#000000' ? '#ffffff' : '#18181b';
-         const subColor = bg.toLowerCase() === '#000000' ? '#a1a1aa' : '#71717a';
+         const textColor = baseColor.toLowerCase() === '#000000' ? '#ffffff' : '#18181b';
+         const subColor = baseColor.toLowerCase() === '#000000' ? '#a1a1aa' : '#71717a';
          
          ctx.fillStyle = textColor;
          ctx.textAlign = 'center';
          ctx.textBaseline = 'middle';
          
-         // Title: elegant style with wide tracking
-         ctx.font = 'bold 24px "Courier New", Courier, monospace';
-         ctx.fillText('P H O T O B O O T H', canvas.width / 2, canvas.height - 90);
-         
-         // Date & Room Code: clean utility text
-         ctx.fillStyle = subColor;
-         ctx.font = '500 16px sans-serif';
          const dateStr = new Date().toLocaleDateString('id-ID', {
              day: '2-digit',
              month: '2-digit',
              year: 'numeric'
          }).replace(/\//g, '.');
-         
-         ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 50);
+
+         if (bgTheme === 'theme-snoopy') {
+             if (themeImgs[0]) {
+                 // Draw snoopy at the bottom center
+                 const snoopyWidth = 60;
+                 const snoopyHeight = themeImgs[0].height * (snoopyWidth / themeImgs[0].width);
+                 ctx.drawImage(themeImgs[0], canvas.width / 2 - snoopyWidth / 2, canvas.height - 130, snoopyWidth, snoopyHeight);
+             }
+             ctx.font = 'bold 24px "Courier New", Courier, monospace';
+             ctx.fillText('S N O O P Y  P H O T O S', canvas.width / 2, canvas.height - 50);
+         } else if (bgTheme === 'theme-ghibli') {
+             if (themeImgs[0]) {
+                 const ghibliWidth = 140;
+                 const ghibliHeight = themeImgs[0].height * (ghibliWidth / themeImgs[0].width);
+                 ctx.drawImage(themeImgs[0], canvas.width / 2 - ghibliWidth / 2, canvas.height - 90, ghibliWidth, ghibliHeight);
+             }
+             ctx.fillStyle = '#475569';
+             ctx.font = '500 14px "Georgia", serif';
+             ctx.fillText(`${dateStr}  ~  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 35);
+         } else if (bgTheme === 'theme-brat') {
+             ctx.font = 'normal 48px Arial, Helvetica, sans-serif';
+             // add blur effect
+             ctx.filter = 'blur(1px)';
+             ctx.fillText('brat', canvas.width / 2, canvas.height - 75);
+             ctx.filter = 'none';
+         } else {
+             // Title: elegant style with wide tracking
+             ctx.font = 'bold 24px "Courier New", Courier, monospace';
+             ctx.fillText('P H O T O B O O T H', canvas.width / 2, canvas.height - 90);
+             
+             // Date & Room Code: clean utility text
+             ctx.fillStyle = subColor;
+             ctx.font = '500 16px sans-serif';
+             ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 50);
+         }
     });
   }, [roomCode]);
 
@@ -551,6 +618,10 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     e.preventDefault();
     if (!chatInput.trim() || !roomCode) return;
     
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
     const newMessage = {
       text: chatInput.trim(),
       senderId: getLocalUid(),
@@ -559,7 +630,8 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     };
     
     updateDoc(doc(db, 'rooms', roomCode), {
-      messages: [...(room?.messages || []), newMessage]
+      messages: [...(room?.messages || []), newMessage],
+      [`${role}.isTyping`]: false
     });
     setChatInput('');
   };
@@ -599,6 +671,7 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
       {/* Header */}
       <div className="flex items-center justify-between p-4 bg-white/40 backdrop-blur-md border-b border-white/20">
         <div className="flex items-center gap-3">
+          <img src="https://upload.wikimedia.org/wikipedia/en/5/53/Snoopy_Peanuts.png" alt="Snoopy" className="w-8 h-8 object-contain drop-shadow-sm" />
           <div className="bg-white/60 px-3 py-1.5 rounded-lg text-sm font-mono tracking-widest border border-white/50 shadow-sm">
             {roomCode}
           </div>
@@ -636,18 +709,30 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
             </div>
 
             {role === 'host' && (
-              <div className="w-full flex justify-between bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm gap-2 mb-8">
-                {[{id: 'white', hex: '#ffffff'}, {id: 'black', hex: '#000000'}, {id: 'cream', hex: '#FFEED6'}, {id: 'pink', hex: '#FCA5A5'}, {id: 'blue', hex: '#93C5FD'}].map(bg => (
+              <div className="w-full flex overflow-x-auto bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm gap-2 mb-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {[
+                  {id: 'white', hex: '#ffffff'}, 
+                  {id: 'black', hex: '#000000'}, 
+                  {id: 'cream', hex: '#FFEED6'},
+                  {id: 'pink', hex: '#fbcfe8'},
+                  {id: 'blue', hex: '#bfdbfe'},
+                  {id: 'snoopy', hex: 'theme-snoopy', icon: 'https://upload.wikimedia.org/wikipedia/en/5/53/Snoopy_Peanuts.png'},
+                  {id: 'ghibli', hex: 'theme-ghibli', icon: 'https://upload.wikimedia.org/wikipedia/en/thumb/c/ca/Studio_Ghibli_logo.svg/512px-Studio_Ghibli_logo.svg.png'},
+                  {id: 'brat', hex: 'theme-brat', label: 'brat'}
+                ].map(bg => (
                   <button
                     key={bg.id}
                     onClick={() => changeOverlayBackground(bg.hex)}
-                    className={`w-10 h-10 rounded-full border-2 transition-transform hover:scale-110 ${
+                    className={`flex-none w-10 h-10 rounded-full border-2 flex items-center justify-center transition-transform hover:scale-110 overflow-hidden ${
                       (room.overlayBackground || '#ffffff') === bg.hex 
                         ? 'border-zinc-900 scale-110 shadow-md' 
                         : 'border-zinc-200'
                     }`}
-                    style={{ backgroundColor: bg.hex }}
-                  />
+                    style={{ backgroundColor: bg.hex.startsWith('#') ? bg.hex : (bg.id === 'brat' ? '#8ACE00' : '#ffffff') }}
+                  >
+                    {bg.icon && <img src={bg.icon} alt={bg.id} className="w-full h-full object-contain p-1" />}
+                    {bg.label && <span className="text-[10px] font-bold font-sans tracking-tighter text-black">{bg.label}</span>}
+                  </button>
                 ))}
               </div>
             )}
@@ -668,46 +753,6 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                 <RefreshCcw className="w-5 h-5" />
                 Retake Foto
               </button>
-            </div>
-
-            {/* Simple Chat */}
-            <div className="w-full mt-6 bg-white rounded-2xl border border-zinc-200 shadow-sm flex flex-col h-[300px]">
-              <div className="p-3 border-b border-zinc-100 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-zinc-500" />
-                <span className="text-sm font-semibold text-zinc-700">Chat</span>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-                {room.messages?.map((msg: any, i: number) => {
-                  const isMe = msg.senderId === getLocalUid();
-                  return (
-                    <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                      <div className={`px-3 py-2 rounded-2xl max-w-[85%] text-sm ${isMe ? 'bg-zinc-900 text-white rounded-tr-sm' : 'bg-zinc-100 text-zinc-800 rounded-tl-sm'}`}>
-                        {msg.text}
-                      </div>
-                      <span className="text-[10px] text-zinc-400 mt-1 capitalize">{msg.role}</span>
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-
-              <form onSubmit={sendMessage} className="p-2 border-t border-zinc-100 flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ketik pesan..."
-                  className="flex-1 bg-zinc-50 rounded-xl px-3 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                />
-                <button 
-                  type="submit" 
-                  disabled={!chatInput.trim()}
-                  className="p-2 bg-zinc-900 text-white rounded-xl disabled:opacity-50"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
             </div>
           </div>
         ) : (
@@ -802,6 +847,77 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Floating Chat */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+        {isChatOpen && (
+          <div className="w-80 h-96 bg-white rounded-2xl border border-zinc-200 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-200">
+            <div className="p-3 border-b border-zinc-100 flex items-center justify-between bg-zinc-50">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-zinc-500" />
+                <span className="text-sm font-semibold text-zinc-700">Chat</span>
+              </div>
+              <button 
+                onClick={() => setIsChatOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+              {room.messages?.map((msg: any, i: number) => {
+                const isMe = msg.senderId === getLocalUid();
+                return (
+                  <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    <div className={`px-3 py-2 rounded-2xl max-w-[85%] text-sm ${isMe ? 'bg-zinc-900 text-white rounded-tr-sm' : 'bg-zinc-100 text-zinc-800 rounded-tl-sm'}`}>
+                      {msg.text}
+                    </div>
+                    <span className="text-[10px] text-zinc-400 mt-1 capitalize">{msg.role}</span>
+                  </div>
+                );
+              })}
+              {room[otherRole]?.isTyping && (
+                <div className="flex flex-col items-start animate-in fade-in">
+                  <div className="px-4 py-3 rounded-2xl bg-zinc-100 rounded-tl-sm flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce"></span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400 mt-1 capitalize">{otherRole} is typing...</span>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <form onSubmit={sendMessage} className="p-2 border-t border-zinc-100 flex gap-2 bg-white">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={handleChatInputChange}
+                placeholder="Ketik pesan..."
+                className="flex-1 bg-zinc-50 rounded-xl px-3 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-900"
+              />
+              <button 
+                type="submit" 
+                disabled={!chatInput.trim()}
+                className="p-2 bg-zinc-900 text-white rounded-xl disabled:opacity-50"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+        )}
+        
+        {!isChatOpen && (
+          <button
+            onClick={() => setIsChatOpen(true)}
+            className="w-12 h-12 bg-zinc-900 text-white rounded-full flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all"
+          >
+            <MessageSquare className="w-5 h-5" />
+          </button>
         )}
       </div>
     </div>

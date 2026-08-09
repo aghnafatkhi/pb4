@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { generateRoomCode } from '@/lib/utils';
 import Webcam from 'react-webcam';
-import { Loader2, Camera, RefreshCcw, Check, UserPlus, Download } from 'lucide-react';
+import { Loader2, Camera, RefreshCcw, Check, UserPlus, Download, MessageSquare, Send } from 'lucide-react';
 
 function getLocalUid() {
   if (typeof window === 'undefined') return 'temp-uid';
@@ -68,6 +68,7 @@ function MainApp({ user }: { user: {uid: string} }) {
           status: 'waiting',
           layout: selectedLayout,
           overlayBackground: '#ffffff',
+          messages: [],
           countdownStartAt: null,
           host: {
             uid: user.uid,
@@ -230,9 +231,14 @@ function MainApp({ user }: { user: {uid: string} }) {
 
 const filterOptions = [
   { id: 'normal', name: 'Normal', style: 'none' },
-  { id: 'bw', name: 'B&W', style: 'grayscale(100%)' },
-  { id: 'sepia', name: 'Sepia', style: 'sepia(100%)' },
-  { id: 'warm', name: 'Warm', style: 'sepia(30%) saturate(140%) hue-rotate(-10deg)' },
+  { id: 'bw', name: 'B&W', style: 'grayscale(100%) contrast(110%)' },
+  { id: 'noir', name: 'Noir', style: 'grayscale(100%) contrast(150%) brightness(90%)' },
+  { id: 'vintage', name: 'Vintage', style: 'sepia(50%) contrast(120%) saturate(120%) hue-rotate(-15deg)' },
+  { id: 'film', name: 'Film', style: 'contrast(120%) saturate(110%) sepia(20%) brightness(95%) hue-rotate(5deg)' },
+  { id: 'retro', name: 'Retro', style: 'sepia(40%) saturate(150%) hue-rotate(-20deg) contrast(120%) brightness(90%)' },
+  { id: 'warm', name: 'Warm', style: 'sepia(30%) saturate(140%) hue-rotate(-10deg) contrast(110%)' },
+  { id: 'cool', name: 'Cool', style: 'saturate(110%) hue-rotate(15deg) contrast(105%) brightness(105%)' },
+  { id: 'fade', name: 'Fade', style: 'contrast(85%) brightness(110%) saturate(80%) sepia(10%)' },
 ];
 
 const getFilterCSS = (fid: string) => filterOptions.find(f => f.id === fid)?.style || 'none';
@@ -249,6 +255,12 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
   const [cameraError, setCameraError] = useState<string | null>(null);
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [chatInput, setChatInput] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [room?.messages]);
   
   const otherRole = role === 'host' ? 'guest' : 'host';
 
@@ -280,9 +292,9 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Set aspect ratio 2R portrait (600x840) -> 2.5 : 3.5 = 1 : 1.4
-    canvas.width = 600; 
-    canvas.height = 840; 
+    // Set aspect ratio 2R portrait (750x1050) -> 2.5 : 3.5 inches at 300 DPI
+    canvas.width = 750; 
+    canvas.height = 1050; 
     
     const loadImages = (urls: string[]) => {
        return Promise.all(urls.map(url => {
@@ -329,11 +341,11 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          const hostFilter = currentRoom.host.filter || 'normal';
          const guestFilter = currentRoom.guest.filter || 'normal';
          
-         const gap = 24;
+         const gap = 30;
          const totalGaps = gap * (framesCount - 1);
-         const paddingX = 24;
-         const paddingTop = 24;
-         const paddingBottom = 120;
+         const paddingX = 30;
+         const paddingTop = 30;
+         const paddingBottom = 150;
          
          const availableHeight = canvas.height - paddingTop - paddingBottom - totalGaps;
          const rowHeight = availableHeight / framesCount;
@@ -359,19 +371,19 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
          ctx.textBaseline = 'middle';
          
          // Title: elegant style with wide tracking
-         ctx.font = 'bold 20px "Courier New", Courier, monospace';
-         ctx.fillText('P H O T O B O O T H', canvas.width / 2, canvas.height - 70);
+         ctx.font = 'bold 24px "Courier New", Courier, monospace';
+         ctx.fillText('P H O T O B O O T H', canvas.width / 2, canvas.height - 90);
          
          // Date & Room Code: clean utility text
          ctx.fillStyle = subColor;
-         ctx.font = '500 13px sans-serif';
+         ctx.font = '500 16px sans-serif';
          const dateStr = new Date().toLocaleDateString('id-ID', {
              day: '2-digit',
              month: '2-digit',
              year: 'numeric'
          }).replace(/\//g, '.');
          
-         ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 40);
+         ctx.fillText(`${dateStr}  •  #${roomCode.toUpperCase()}`, canvas.width / 2, canvas.height - 50);
     });
   }, [roomCode]);
 
@@ -522,20 +534,34 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
 
 
   const resetSession = () => {
-    // Host yang berhak reset state
-    if (role === 'host') {
-        updateDoc(doc(db, 'rooms', roomCode), {
-            status: 'both_connected',
-            'host.ready': false,
-            'guest.ready': false,
-            'host.photoReady': false,
-            'guest.photoReady': false,
-            'host.photoUrls': [],
-            'guest.photoUrls': [],
-            poseIndex: 0,
-            countdownStartAt: null
-        });
-    }
+    updateDoc(doc(db, 'rooms', roomCode), {
+        status: 'both_connected',
+        'host.ready': false,
+        'guest.ready': false,
+        'host.photoReady': false,
+        'guest.photoReady': false,
+        'host.photoUrls': [],
+        'guest.photoUrls': [],
+        poseIndex: 0,
+        countdownStartAt: null
+    });
+  };
+
+  const sendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !roomCode) return;
+    
+    const newMessage = {
+      text: chatInput.trim(),
+      senderId: getLocalUid(),
+      role: role,
+      timestamp: Date.now()
+    };
+    
+    updateDoc(doc(db, 'rooms', roomCode), {
+      messages: [...(room?.messages || []), newMessage]
+    });
+    setChatInput('');
   };
 
   const downloadPhoto = () => {
@@ -593,15 +619,15 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
               <canvas ref={canvasRef} className="w-full h-full object-contain" />
             </div>
             
-            <div className="w-full flex justify-between bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm gap-1 mb-4">
+            <div className="w-full flex overflow-x-auto bg-white p-2 rounded-2xl border border-zinc-200 shadow-sm gap-2 mb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               {filterOptions.map(f => (
                 <button
                   key={f.id}
                   onClick={() => changeFilter(f.id)}
-                  className={`flex-1 py-2 text-xs font-medium rounded-xl transition-colors ${
+                  className={`flex-none px-4 py-2 text-xs font-medium rounded-xl transition-colors ${
                     (myData.filter || 'normal') === f.id 
                       ? 'bg-[#FFEED6] text-zinc-900 border border-zinc-200 shadow-sm' 
-                      : 'text-zinc-500 hover:text-zinc-700'
+                      : 'text-zinc-500 hover:text-zinc-700 bg-zinc-50'
                   }`}
                 >
                   {f.name}
@@ -635,18 +661,53 @@ function PhotoboothRoom({ roomCode, role, onLeave }: { roomCode: string, role: '
                 Download Foto
               </button>
 
-              {role === 'host' && (
+              <button 
+                onClick={resetSession}
+                className="flex items-center justify-center gap-2 w-full py-4 bg-zinc-800 text-white rounded-full font-bold shadow-xl active:scale-95 transition-transform"
+              >
+                <RefreshCcw className="w-5 h-5" />
+                Retake Foto
+              </button>
+            </div>
+
+            {/* Simple Chat */}
+            <div className="w-full mt-6 bg-white rounded-2xl border border-zinc-200 shadow-sm flex flex-col h-[300px]">
+              <div className="p-3 border-b border-zinc-100 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-zinc-500" />
+                <span className="text-sm font-semibold text-zinc-700">Chat</span>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+                {room.messages?.map((msg: any, i: number) => {
+                  const isMe = msg.senderId === getLocalUid();
+                  return (
+                    <div key={i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className={`px-3 py-2 rounded-2xl max-w-[85%] text-sm ${isMe ? 'bg-zinc-900 text-white rounded-tr-sm' : 'bg-zinc-100 text-zinc-800 rounded-tl-sm'}`}>
+                        {msg.text}
+                      </div>
+                      <span className="text-[10px] text-zinc-400 mt-1 capitalize">{msg.role}</span>
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+
+              <form onSubmit={sendMessage} className="p-2 border-t border-zinc-100 flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ketik pesan..."
+                  className="flex-1 bg-zinc-50 rounded-xl px-3 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                />
                 <button 
-                  onClick={resetSession}
-                  className="flex items-center justify-center gap-2 w-full py-4 bg-zinc-800 text-white rounded-full font-bold shadow-xl active:scale-95 transition-transform"
+                  type="submit" 
+                  disabled={!chatInput.trim()}
+                  className="p-2 bg-zinc-900 text-white rounded-xl disabled:opacity-50"
                 >
-                  <RefreshCcw className="w-5 h-5" />
-                  Retake Foto
+                  <Send className="w-4 h-4" />
                 </button>
-              )}
-              {role === 'guest' && (
-                <p className="text-zinc-500 text-sm text-center font-medium">Menunggu host untuk retake...</p>
-              )}
+              </form>
             </div>
           </div>
         ) : (

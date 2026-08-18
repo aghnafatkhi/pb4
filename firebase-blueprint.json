@@ -25,12 +25,48 @@
         "photoUrl": { "type": "string", "nullable": true },
         "photoReady": { "type": "boolean" }
       }
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile with friend code and presence status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "friendCode": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string" },
+        "lastSeen": { "type": "number" },
+        "friends": { "type": "array" }
+      }
+    },
+    "Invite": {
+      "title": "Invite",
+      "description": "Direct photobooth invitation between friends",
+      "type": "object",
+      "properties": {
+        "fromUid": { "type": "string" },
+        "fromName": { "type": "string" },
+        "toUid": { "type": "string" },
+        "roomCode": { "type": "string" },
+        "layout": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      }
     }
   },
   "firestore": {
     "rooms/{roomCode}": {
       "schema": "#/entities/Room",
       "description": "Photobooth rooms"
+    },
+    "users/{userId}": {
+      "schema": "#/entities/User",
+      "description": "User profiles and friends"
+    },
+    "invites/{inviteId}": {
+      "schema": "#/entities/Invite",
+      "description": "Real-time photobooth invitations"
     }
   }
 }

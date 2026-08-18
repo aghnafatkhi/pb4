@@ -1,6 +1,6 @@
 {
-  "name": "2R Photobooth",
-  "description": "Multi-user synchronized 2R photobooth collage strip with 2, 3, or 4 frames, real-time filters and custom colored overlays.",
+  "name": "Photobooth Abuy",
+  "description": "Multi-user synchronized photobooth collage strip with 2, 3, or 4 frames, real-time filters and custom colored overlays.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

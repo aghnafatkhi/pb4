@@ -1,7 +1,17 @@
+# deps
 node_modules/
+
+# build
 .next/
-coverage/
-.DS_Store
-*.log
-.env*
+out/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.*
 !.env.example
+
+# tooling
+.vercel/
+.DS_Store
+npm-debug.log*

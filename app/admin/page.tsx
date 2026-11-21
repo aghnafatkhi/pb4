@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import React, { useState, useEffect, useRef } from 'react';
+import { collection, onSnapshot, db } from '@/lib/store';
 import { 
   ArrowLeft, 
   Undo2, 
@@ -21,6 +20,7 @@ import {
   Plus, 
   Layers, 
   Sparkles, 
+  LogOut,
   Palette, 
   Type, 
   FolderHeart, 
@@ -38,6 +38,7 @@ import {
 import Link from 'next/link';
 import ColorPicker from '@/components/ColorPicker';
 import { STICKER_LIBRARY, StickerItem } from '@/lib/stickerAssets';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, getPhotoSlots } from '@/lib/photoLayout';
 
 export interface CanvasLayer {
   id: string;
@@ -129,31 +130,7 @@ export default function AdminPage() {
   } | null>(null);
 
   const [snapLines, setSnapLines] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
-
-  // Photo slots guide calculator matching the photobooth layout
-  const getPhotoSlots = (currentLayout: string) => {
-    const framesCount = currentLayout === '4-frames' ? 4 : currentLayout === '3-frames' ? 3 : 2;
-    const gap = 30;
-    const totalGaps = gap * (framesCount - 1);
-    const paddingX = 30;
-    const paddingTop = 30;
-    const paddingBottom = 150;
-
-    const canvasHeight = 1050;
-    const canvasWidth = 750;
-
-    const availableHeight = canvasHeight - paddingTop - paddingBottom - totalGaps;
-    const rowHeight = availableHeight / framesCount;
-    const photoWidth = (canvasWidth - paddingX * 2) / 2;
-
-    const slots = [];
-    for (let i = 0; i < framesCount; i++) {
-      const y = paddingTop + i * (rowHeight + gap);
-      slots.push({ id: `left-${i}`, x: paddingX, y, width: photoWidth, height: rowHeight, label: `FOTO ${i + 1} (HOST)` });
-      slots.push({ id: `right-${i}`, x: paddingX + photoWidth, y, width: photoWidth, height: rowHeight, label: `FOTO ${i + 1} (GUEST)` });
-    }
-    return slots;
-  };
+  const dragMovedRef = useRef(false);
 
   // History updater helper
   const updateLayersWithHistory = (newLayers: CanvasLayer[]) => {
@@ -265,7 +242,7 @@ export default function AdminPage() {
   const handleAlignCenterX = () => {
     if (!selectedLayerId) return;
     const updated = layers.map((l) =>
-      l.id === selectedLayerId ? { ...l, x: Math.round(375 - l.width / 2) } : l
+      l.id === selectedLayerId ? { ...l, x: Math.round(CANVAS_WIDTH / 2 - l.width / 2) } : l
     );
     updateLayersWithHistory(updated);
   };
@@ -273,7 +250,7 @@ export default function AdminPage() {
   const handleAlignCenterY = () => {
     if (!selectedLayerId) return;
     const updated = layers.map((l) =>
-      l.id === selectedLayerId ? { ...l, y: Math.round(525 - l.height / 2) } : l
+      l.id === selectedLayerId ? { ...l, y: Math.round(CANVAS_HEIGHT / 2 - l.height / 2) } : l
     );
     updateLayersWithHistory(updated);
   };
@@ -406,6 +383,12 @@ export default function AdminPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 400 * 1024) {
+      alert('Ukuran gambar maksimal 400 KB karena aset disimpan langsung di database.');
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
@@ -496,6 +479,7 @@ export default function AdminPage() {
     if (layer.locked && type !== 'rotate') return;
     e.stopPropagation();
     setSelectedLayerId(layer.id);
+    dragMovedRef.current = false;
     setActiveDrag({
       type,
       startX: e.clientX,
@@ -513,6 +497,7 @@ export default function AdminPage() {
       if (!activeDrag || !selectedLayerId) return;
       const layer = layers.find((l) => l.id === selectedLayerId);
       if (!layer || layer.locked) return;
+      dragMovedRef.current = true;
 
       const dx = e.clientX - activeDrag.startX;
       const dy = e.clientY - activeDrag.startY;
@@ -530,13 +515,13 @@ export default function AdminPage() {
         let showGuideX = false;
         let showGuideY = false;
 
-        // Snapping Canvas Center (750x1050 midpoint: 375, 525)
-        if (Math.abs(newX + layer.width / 2 - 375) < 10) {
-          newX = 375 - layer.width / 2;
+        // Snapping Canvas Center
+        if (Math.abs(newX + layer.width / 2 - CANVAS_WIDTH / 2) < 10) {
+          newX = CANVAS_WIDTH / 2 - layer.width / 2;
           showGuideX = true;
         }
-        if (Math.abs(newY + layer.height / 2 - 525) < 10) {
-          newY = 525 - layer.height / 2;
+        if (Math.abs(newY + layer.height / 2 - CANVAS_HEIGHT / 2) < 10) {
+          newY = CANVAS_HEIGHT / 2 - layer.height / 2;
           showGuideY = true;
         }
 
@@ -545,16 +530,16 @@ export default function AdminPage() {
           newX = 0;
           showGuideX = true;
         }
-        if (Math.abs(newX + layer.width - 750) < 10) {
-          newX = 750 - layer.width;
+        if (Math.abs(newX + layer.width - CANVAS_WIDTH) < 10) {
+          newX = CANVAS_WIDTH - layer.width;
           showGuideX = true;
         }
         if (Math.abs(newY) < 10) {
           newY = 0;
           showGuideY = true;
         }
-        if (Math.abs(newY + layer.height - 1050) < 10) {
-          newY = 1050 - layer.height;
+        if (Math.abs(newY + layer.height - CANVAS_HEIGHT) < 10) {
+          newY = CANVAS_HEIGHT - layer.height;
           showGuideY = true;
         }
 
@@ -651,7 +636,7 @@ export default function AdminPage() {
     };
 
     const handleMouseUp = () => {
-      if (activeDrag && selectedLayerId) {
+      if (activeDrag && selectedLayerId && dragMovedRef.current) {
         const finalState = JSON.parse(JSON.stringify(layers));
         setHistory((prev) => {
           const slice = prev.slice(0, historyIndex + 1);
@@ -659,6 +644,7 @@ export default function AdminPage() {
         });
         setHistoryIndex((prev) => prev + 1);
       }
+      dragMovedRef.current = false;
       setActiveDrag(null);
       setSnapLines({ x: null, y: null });
     };
@@ -694,17 +680,29 @@ export default function AdminPage() {
       label: undefined,
     };
 
+    if (new Blob([JSON.stringify(payload)]).size > 800_000) {
+      alert('Desain terlalu besar untuk disimpan. Hapus atau perkecil aset, lalu simpan lagi.');
+      setSaving(false);
+      return;
+    }
+
     try {
-      if (selectedOverlayId) {
-        await setDoc(doc(db, 'overlays', selectedOverlayId), payload, { merge: true });
-      } else {
-        const ref = await addDoc(collection(db, 'overlays'), payload);
-        setSelectedOverlayId(ref.id);
+      const id = selectedOverlayId || crypto.randomUUID();
+      const res = await fetch('/api/admin/overlays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, payload }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || 'Gagal menyimpan overlay.');
       }
+      setSelectedOverlayId(id);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     } catch (err) {
       console.error('Error saving overlay:', err);
+      alert(err instanceof Error ? err.message : 'Gagal menyimpan overlay.');
     } finally {
       setSaving(false);
     }
@@ -712,13 +710,24 @@ export default function AdminPage() {
 
   const handleDeleteOverlayItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const name = overlays.find((o) => o.id === id)?.name || 'desain ini';
+    if (!window.confirm(`Hapus "${name}"? Tindakan ini tidak bisa dibatalkan.`)) return;
     try {
-      await deleteDoc(doc(db, 'overlays', id));
+      const res = await fetch('/api/admin/overlays', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || 'Gagal menghapus overlay.');
+      }
       if (selectedOverlayId === id) {
         handleNewDesign();
       }
     } catch (err) {
       console.error('Error deleting overlay:', err);
+      alert(err instanceof Error ? err.message : 'Gagal menghapus overlay.');
     }
   };
 
@@ -743,7 +752,7 @@ export default function AdminPage() {
           <Link
             href="/"
             className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-700 hover:text-zinc-900 shrink-0"
-            title="Kembali ke Photobooth"
+            title="Kembali ke Fotoyuk"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -781,6 +790,17 @@ export default function AdminPage() {
         {/* Right: History, Zoom, Preview & Save */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           
+          <form action="/api/admin/logout" method="post" className="shrink-0">
+            <button
+              type="submit"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-lg transition-all"
+              title="Keluar dari panel admin"
+              aria-label="Keluar dari panel admin"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </form>
+
           {/* Undo / Redo */}
           <div className="flex items-center bg-zinc-50 border border-zinc-200/70 rounded-xl p-0.5">
             <button
@@ -1469,8 +1489,8 @@ export default function AdminPage() {
             id="design-canvas"
             className="relative shadow-2xl rounded-2xl overflow-hidden shrink-0 transition-transform origin-center border border-zinc-300/60"
             style={{
-              width: 750 * zoom,
-              height: 1050 * zoom,
+              width: CANVAS_WIDTH * zoom,
+              height: CANVAS_HEIGHT * zoom,
               backgroundColor: baseColor,
               backgroundImage: gradientSettings.enabled
                 ? `linear-gradient(${gradientSettings.direction.replace('to-', 'to ')}, ${baseColor}, ${gradientSettings.color2})`
@@ -1481,8 +1501,8 @@ export default function AdminPage() {
             <div
               className="absolute inset-0 origin-top-left"
               style={{
-                width: 750,
-                height: 1050,
+                width: CANVAS_WIDTH,
+                height: CANVAS_HEIGHT,
                 transform: `scale(${zoom})`,
               }}
             >
